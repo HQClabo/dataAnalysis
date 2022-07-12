@@ -16,7 +16,7 @@ def peakFindList(data, prominence = 2):
         peaks.append(find_peaks(k,  prominence = prominence)[0])
     return peaks
 
-def multiPeakExtract(data, freq = None, prominence = 0.0005):
+def multiPeakExtract(data, freq = None, prominence = 0.0005, height = None):
     """
     Extract multiple peaks in a single trace.
 
@@ -36,9 +36,9 @@ def multiPeakExtract(data, freq = None, prominence = 0.0005):
 
     """
     if freq == None:
-        return find_peaks(data,  prominence = prominence)[0]
+        return find_peaks(data,  prominence = prominence, height = height)[0]
     else:
-        return find_peaks(data,  prominence = prominence)[0], freq[find_peaks(data,  prominence = prominence)[0][0]]
+        return find_peaks(data,  prominence = prominence)[0], freq[find_peaks(data,  prominence = prominence, height = height)[0][0]]
 
 def multiPeakFitNotch(data, freq, power, peaks, pointSpan, attenuation = 60, plot = False):
     fitReport = {
