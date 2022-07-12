@@ -8,6 +8,7 @@ Created on Tue May  3 16:22:53 2022
 from scipy.signal import find_peaks
 import numpy as np
 from resonator_tools import circuit
+import matplotlib.pyplot as plt
 
 
 def peakFindList(data, prominence = 2):
@@ -209,7 +210,7 @@ def multiPeakFitCorrection(fitReport, threshold = 1):
             
     return fitReportCorr
 
-def fitPowerSweep(data, freq, center_freq, spanPoints, power, attenuation = 80, plot = False):
+def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, plot = False):
     fitReport = {
         "Qi" : [],
         "Qi_err" : [],
@@ -219,13 +220,15 @@ def fitPowerSweep(data, freq, center_freq, spanPoints, power, attenuation = 80, 
         "Ql_err" : [],
         "Nph" : [],
         "fr" : [],
-        "guessed_freq": freq[center_freq]
+        # "guessed_freq": freq[center_freq]
         }
     # lowLimit = [centers[0]-int(spanPoints/2):centers[0]+int(spanPoints/2)]
     for k,i in enumerate(power):
         port = circuit.notch_port()
-        port.add_data(freq[center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)], data[k][center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)])
-        port.autofit(fr_guess=freq[center_freq])
+        # port.add_data(freq[center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)], data[k][center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)])
+        port.add_data(freq,data[k])
+        port.cut_data(center_freq[k]-span/2,center_freq[k]+span/2)
+        port.autofit(fr_guess=center_freq[k])
         if plot == True:
             port.plotall()
         
@@ -242,8 +245,25 @@ def fitPowerSweep(data, freq, center_freq, spanPoints, power, attenuation = 80, 
         
     return fitReport
 
-
-
+def plot_Qfactors_vs_power(fit,label='',filename=False,file_res=300,log=True):
+    fig, ax = plt.subplots(1)
+    fig.dpi = file_res
+    if log:
+        ax.loglog()
+    else:
+        ax.semilogx()
+    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='Qi',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qi_err'],label='Qc',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='Ql',fmt = "o")
+    ax.legend()
+    ax.set_xlabel('photon number')
+    ax.set_ylabel('Q')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    if filename:
+        fig.savefig(filename,dpi=file_res)
+    return fig,ax
 
 
 
