@@ -70,6 +70,39 @@ def multiPeakFitNotch(data, freq, power, peaks, pointSpan, attenuation = 60, plo
         
     return fitReport
 
+def multiPeakFitNotchPowerScan(data, freq, power, peaks, pointSpan, attenuation = 60, plot = False):
+    fitReportPowerScan = []
+    for i,j in enumerate(power):
+        print(i)
+        fitReport = {
+            "Qi" : [],
+            "Qi_err" : [],
+            "Qc" : [],
+            "Qc_err" : [],
+            "Ql" : [],
+            "Ql_err" : [],
+            "Nph" : [],
+            "fr" : []
+            }
+        for k in peaks:
+            port = circuit.notch_port()
+            port.add_data(freq[k-pointSpan:k+pointSpan], data[k-pointSpan:k+pointSpan])
+            port.autofit()
+            if plot == True:
+                port.plotall()
+            
+            #adding fitting results to the dictionary
+            fitReport["Qi"].append(port.fitresults["Qi_dia_corr"])
+            fitReport["Qi_err"].append(port.fitresults["Qi_dia_corr_err"])
+            fitReport["Qc"].append(port.fitresults["Qc_dia_corr"])
+            fitReport["Qc_err"].append(port.fitresults["Qi_dia_corr"])
+            fitReport["Ql"].append(port.fitresults["Ql"])
+            fitReport["Ql_err"].append(port.fitresults["Ql_err"])
+            fitReport["Nph"].append(port.get_photons_in_resonator(power - attenuation,unit='dBm',diacorr=True))
+            fitReport["fr"].append(port.fitresults["fr"])
+        fitReportPowerScan.append(fitReport)
+    return fitReport
+
 def multiPeakFitReflection(data, freq, power, peaks, pointSpan, attenuation = 60, plot = False):
     fitReport = {
         "Qi" : [],
@@ -99,6 +132,39 @@ def multiPeakFitReflection(data, freq, power, peaks, pointSpan, attenuation = 60
         fitReport["fr"].append(port.fitresults["fr"])
         
     return fitReport
+
+def multiPeakFitReflectionPowerScan(data, freq, power, peaks, pointSpan, attenuation = 70, plot = False):
+    fitReportPowerScan = []
+    for i,j in enumerate(power):
+        print(i)
+        fitReport = {
+            "Qi" : [],
+            "Qi_err" : [],
+            "Qc" : [],
+            "Qc_err" : [],
+            "Ql" : [],
+            "Ql_err" : [],
+            "Nph" : [],
+            "fr" : []
+            }
+        for k in peaks:
+            port = circuit.reflection_port()
+            port.add_data(freq[k-pointSpan:k+pointSpan], data[i][k-pointSpan:k+pointSpan])
+            port.autofit()
+            if plot == True:
+                port.plotall()
+            
+            #adding fitting results to the dictionary
+            fitReport["Qi"].append(port.fitresults["Qi"])
+            fitReport["Qi_err"].append(port.fitresults["Qi_err"])
+            fitReport["Qc"].append(port.fitresults["Qc"])
+            fitReport["Qc_err"].append(port.fitresults["Qc_err"])
+            fitReport["Ql"].append(port.fitresults["Ql"])
+            fitReport["Ql_err"].append(port.fitresults["Ql_err"])
+            fitReport["Nph"].append(port.get_photons_in_resonator(j - attenuation,unit='dBm'))
+            fitReport["fr"].append(port.fitresults["fr"])
+        fitReportPowerScan.append(fitReport)
+    return fitReportPowerScan
 
 def multiPeakFitCorrection(fitReport, threshold = 1):
     fitReportCorr = {
@@ -143,6 +209,38 @@ def multiPeakFitCorrection(fitReport, threshold = 1):
             
     return fitReportCorr
 
+def fitPowerSweep(data, freq, center_freq, spanPoints, power, attenuation = 80, plot = False):
+    fitReport = {
+        "Qi" : [],
+        "Qi_err" : [],
+        "Qc" : [],
+        "Qc_err" : [],
+        "Ql" : [],
+        "Ql_err" : [],
+        "Nph" : [],
+        "fr" : [],
+        "guessed_freq": freq[center_freq]
+        }
+    # lowLimit = [centers[0]-int(spanPoints/2):centers[0]+int(spanPoints/2)]
+    for k,i in enumerate(power):
+        port = circuit.notch_port()
+        port.add_data(freq[center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)], data[k][center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)])
+        port.autofit(fr_guess=freq[center_freq])
+        if plot == True:
+            port.plotall()
+        
+        #adding fitting results to the dictionary
+        fitReport["Qi"].append(port.fitresults["Qi_dia_corr"])
+        fitReport["Qi_err"].append(port.fitresults["Qi_dia_corr_err"])
+        fitReport["Qc"].append(port.fitresults["Qc_dia_corr"])
+        fitReport["Qc_err"].append(port.fitresults["Qi_dia_corr"])
+        fitReport["Ql"].append(port.fitresults["Ql"])
+        fitReport["Ql_err"].append(port.fitresults["Ql_err"])
+        fitReport["Nph"].append(port.get_photons_in_resonator(i - attenuation,unit='dBm',diacorr=True))
+        fitReport["fr"].append(port.fitresults["fr"])
+        # fitReport["guessed_freq"].append()
+        
+    return fitReport
 
 
 
