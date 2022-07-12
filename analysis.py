@@ -168,46 +168,19 @@ def multiPeakFitReflectionPowerScan(data, freq, power, peaks, pointSpan, attenua
     return fitReportPowerScan
 
 def multiPeakFitCorrection(fitReport, threshold = 1):
-    fitReportCorr = {
-        "Qi" : [],
-        "Qi_err" : [],
-        "Qc" : [],
-        "Qc_err" : [],
-        "Ql" : [],
-        "Ql_err" : [],
-        "Nph_l" : [],
-        "Nph_i" : [],
-        "Nph_c" : [],
-        "fr_i" : [],
-        "fr_c" : [],
-        "fr_l" : []
-        }
+    # create empty dictionary
+    fitReportCorr = {}
+    for key in fitReport.keys():
+        fitReportCorr[key] = []
     
-    #Internal quality factor correction
+    # add fit result only if the all the constrains pass
     for k in range(len(fitReport["Qi"])):
-        if fitReport["Qi_err"][k] > threshold*fitReport["Qi"][k]:
-            fitReportCorr["Qi"].append(fitReport["Qi"][k])
-            fitReportCorr["Qi_err"].append(fitReport["Qi_err"][k])
-            fitReportCorr["Nph_i"].append(fitReport["Nph"][k])
-            fitReportCorr["fr_i"].append(fitReport["fr"][k])
-    
-    #Coupling quality factor correction
-    for k in range(len(fitReport["Qc"])):
-        if fitReport["Qc_err"][k] > threshold*fitReport["Qc"][k]:
-            fitReportCorr["Qc"].append(fitReport["Qc"][k])
-            fitReportCorr["Qc_err"].append(fitReport["Qc_err"][k])
-            fitReportCorr["Nph_c"].append(fitReport["Nph"][k])
-            fitReportCorr["fr_c"].append(fitReport["fr"][k])
-    
-    #Loaded quality factor correction
-    for k in range(len(fitReport["Ql"])):
-        if fitReport["Ql_err"][k] > threshold*fitReport["Ql"][k]:
-            fitReportCorr["Ql"].append(fitReport["Ql"][k])
-            fitReportCorr["Ql_err"].append(fitReport["Ql_err"][k])
-            fitReportCorr["Nph_l"].append(fitReport["Nph"][k])
-            fitReportCorr["fr_l"].append(fitReport["fr"][k])
-    
-            
+        bool_Qi = fitReport["Qi_err"][k] < threshold*fitReport["Qi"][k]
+        bool_Qc = fitReport["Qc_err"][k] < threshold*fitReport["Qc"][k]
+        bool_Ql = fitReport["Ql_err"][k] < threshold*fitReport["Ql"][k]
+        if bool_Qi and bool_Qc and bool_Ql:
+            for key in fitReportCorr.keys():
+                fitReportCorr[key].append(fitReport[key][k])
     return fitReportCorr
 
 def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, plot = False):
@@ -231,12 +204,11 @@ def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, plot =
         port.autofit(fr_guess=center_freq[k])
         if plot == True:
             port.plotall()
-        
         #adding fitting results to the dictionary
         fitReport["Qi"].append(port.fitresults["Qi_dia_corr"])
         fitReport["Qi_err"].append(port.fitresults["Qi_dia_corr_err"])
         fitReport["Qc"].append(port.fitresults["Qc_dia_corr"])
-        fitReport["Qc_err"].append(port.fitresults["Qi_dia_corr"])
+        fitReport["Qc_err"].append(port.fitresults["absQc_err"])
         fitReport["Ql"].append(port.fitresults["Ql"])
         fitReport["Ql_err"].append(port.fitresults["Ql_err"])
         fitReport["Nph"].append(port.get_photons_in_resonator(i - attenuation,unit='dBm',diacorr=True))
