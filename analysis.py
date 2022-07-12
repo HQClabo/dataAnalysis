@@ -245,7 +245,7 @@ def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, plot =
         
     return fitReport
 
-def plot_Qfactors_vs_power(fit,label='',filename=False,file_res=300,log=True):
+def plot_QvsP(fit,label='',filename=False,file_res=300,log=True):
     fig, ax = plt.subplots(1)
     fig.dpi = file_res
     if log:
