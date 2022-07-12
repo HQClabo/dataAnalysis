@@ -225,7 +225,7 @@ def plot_QvsP(fit,label='',filename=False,file_res=300,log=True):
     else:
         ax.semilogx()
     ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='Qi',fmt = "o")
-    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qi_err'],label='Qc',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='Qc',fmt = "o")
     ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='Ql',fmt = "o")
     ax.legend()
     ax.set_xlabel('photon number')
