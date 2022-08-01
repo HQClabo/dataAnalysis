@@ -25,6 +25,14 @@ def find_idx(array,values):
 # def array_range(array,vmin,vmax,axis=0):
 #     if len(array.shape) > 1:
 #         for ii in range(array.shape[(axis+1)%2]):
+    
+def slice_array(array,slice_length):
+    slice_length = int(slice_length)
+    n = array.shape
+    array_out = np.zeros([int(n[0]/slice_length),slice_length,n[1]])
+    for ii in range(int(n[0]/slice_length)):
+        array_out[ii] = array[ii:(ii+slice_length)]
+    return array_out
 
 def array_span(array,vmin,vmax):    
     idx_min = find_idx(array,vmin)
@@ -56,18 +64,53 @@ def plot_1D_mulitple(x,y,axis_labels=['',''],title='',linetype='-',fontsize=14,r
 
 def line_cut(x,y,z,cut_val,axis=0):
     # axis=0 means to take a cut along y-axis where the x-axis has the value cut_val
+    if len(x.shape) == 1:
+        x_ax = x
+    else:
+        x_ax = x[0,:]
+    if len(y.shape) == 1:
+        y_ax = y
+    else:
+        y_ax = y[:,0]
+    
     if axis == 0:
-        idx = (np.abs(x[0,:] - cut_val)).argmin()
-        cutx = y[:,0]
+        idx = (np.abs(x_ax - cut_val)).argmin()
+        cutx = y_ax
         cuty = z[:,idx]
     else:
         if axis == 1:
-            idx = (np.abs(y[:,0] - cut_val)).argmin()
-            cutx = x[0,:]
+            idx = (np.abs(y_ax - cut_val)).argmin()
+            cutx = x_ax
             cuty = z[idx,:]
     return cutx, cuty
 
+def plot_2D(x,y,z,colormap='viridis',vmin=None,vmax=None,labels=['','',''],title='',logscale=False,aspect=1,fontsize=14,res=300):
+    fig, ax = plt.subplots(1)
+    fig.dpi = res
+    if logscale:
+        z_plot = abs(z)
+    else:
+        z_plot = z
+    if vmin is None:
+        vmin = z_plot.min()
+    if vmax is None:
+        vmax = z_plot.max()
+    # ax.set_aspect((x.max()-x.min())/(y.max()-y.min()))
+    if logscale:
+        plot2d = ax.pcolormesh(x,y,abs(z),cmap=colormap,norm=colors.LogNorm(vmin=vmin, vmax=vmax))
+    else:
+        plot2d = ax.pcolormesh(x,y,z,cmap=colormap,vmin=vmin,vmax=vmax)
+    ax.set_aspect(aspect/ax.get_data_ratio())
+    ax.set_xlabel(labels[0], fontsize=fontsize)
+    ax.set_ylabel(labels[1], fontsize=fontsize)
+    ax.set_title(title)
+    cb = fig.colorbar(plot2d,ax=ax)
+    cb.set_label(labels[2], fontsize=fontsize)
+    fig.tight_layout()
+    return fig, ax, cb
+
 def plot_2D_linear(x,y,z,colormap='viridis',vmin=None,vmax=None,res=300):
+    """ now included in plot_2D """
     fig, ax = plt.subplots(1)
     fig.dpi = res
     if vmin is None:
@@ -81,6 +124,7 @@ def plot_2D_linear(x,y,z,colormap='viridis',vmin=None,vmax=None,res=300):
     return fig, ax, cb
 
 def plot_2D_clog(x,y,z,colormap='viridis',vmin=None,vmax=None,res=300):
+    """ now included in plot_2D """
     fig, ax = plt.subplots(1)
     fig.dpi = res
     if vmin is None:
@@ -104,6 +148,11 @@ def set_axis_size(w,h, ax=None):
     figh = float(h)/(t-b)
     ax.figure.set_figwidth(figw)
     ax.figure.set_figheight(figh)
+    
+def force_aspect(ax,aspect=1):
+    im = ax.get_images()
+    extent =  im[0].get_extent()
+    ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect)
 
 
 #%% Coulomb plots
