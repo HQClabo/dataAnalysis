@@ -153,6 +153,16 @@ def force_aspect(ax,aspect=1):
     im = ax.get_images()
     extent =  im[0].get_extent()
     ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect)
+    
+def set_axis_labels(ax,title='',xlabel='',ylabel='',fontsize=14,labelsize=12):
+    ax.set_title(title,fontsize=fontsize)
+    ax.set_xlabel(xlabel,fontsize=fontsize)
+    ax.set_ylabel(ylabel,fontsize=fontsize)
+    ax.tick_params(labelsize=labelsize)
+
+def set_colorbar_labels(cb,clabel='',fontsize=14,labelsize=12):
+    cb.set_label(clabel,fontsize=fontsize)
+    cb.ax.tick_params(labelsize=labelsize)
 
 
 #%% Coulomb plots
