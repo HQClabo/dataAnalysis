@@ -50,7 +50,7 @@ def plot_1D(x,y,labels=['',''],title='',linetype='-',fontsize=14,res=300):
     fig.tight_layout()
     return fig, ax
 
-def plot_1D_mulitple(x,y,axis_labels=['',''],title='',linetype='-',fontsize=14,res=300):
+def plot_1D_multiple(x,y,axis_labels=['',''],title='',linetype='-',fontsize=14,res=300):
     fig, ax = plt.subplots(1)
     fig.dpi = res
     for ii in range(len(x)):
