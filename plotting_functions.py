@@ -22,6 +22,10 @@ def find_idx(array,values):
         idx.sort()
     return idx.astype(int)
 
+def rotate_complex(number,theta):
+    # rotates a complex number by angle theta in degrees 
+    return number * np.exp(1j * 2*np.pi * theta/360)
+
 # def array_range(array,vmin,vmax,axis=0):
 #     if len(array.shape) > 1:
 #         for ii in range(array.shape[(axis+1)%2]):
@@ -104,7 +108,7 @@ def plot_2D(x,y,z,colormap='viridis',vmin=None,vmax=None,labels=['','',''],title
     ax.set_xlabel(labels[0], fontsize=fontsize)
     ax.set_ylabel(labels[1], fontsize=fontsize)
     ax.set_title(title)
-    cb = fig.colorbar(plot2d,ax=ax)
+    cb = fig.colorbar(plot2d,ax=ax,fraction=0.047*aspect)
     cb.set_label(labels[2], fontsize=fontsize)
     fig.tight_layout()
     return fig, ax, cb

@@ -229,6 +229,52 @@ def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, port_t
         
     return fitReport
 
+def fitFluxSweep(data, freq, center_freq, span, vflux, power, attenuation=80, port_type='notch', plot = False):
+    fitReport = {
+        "Qi" : [],
+        "Qi_err" : [],
+        "Qc" : [],
+        "Qc_err" : [],
+        "Ql" : [],
+        "Ql_err" : [],
+        "Nph" : [],
+        "fr" : [],
+        # "guessed_freq": freq[center_freq]
+        }
+    # lowLimit = [centers[0]-int(spanPoints/2):centers[0]+int(spanPoints/2)]
+    for k in range(len(vflux)):
+        if port_type == 'notch':
+            port = circuit.notch_port()
+        elif port_type == 'reflection':
+            port = circuit.reflection_port()
+        else:
+            print("This port type is not supported. Use 'notch', 'reflection' or 'transmission'")
+        # port.add_data(freq[center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)], data[k][center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)])
+        port.add_data(freq,data[k])
+        port.cut_data(center_freq[k]-span/2,center_freq[k]+span/2)
+        # port.autofit(fr_guess=center_freq[k])
+        port.autofit()
+        if plot == True:
+            port.plotall()
+        #adding fitting results to the dictionary
+        if port_type == 'notch':
+            fitReport["Qi"].append(port.fitresults["Qi_dia_corr"])
+            fitReport["Qi_err"].append(port.fitresults["Qi_dia_corr_err"])
+            fitReport["Qc"].append(port.fitresults["Qc_dia_corr"])
+            fitReport["Qc_err"].append(port.fitresults["absQc_err"])
+        else:
+            fitReport["Qi"].append(port.fitresults["Qi"])
+            fitReport["Qi_err"].append(port.fitresults["Qi_err"])
+            fitReport["Qc"].append(port.fitresults["Qc"])
+            fitReport["Qc_err"].append(port.fitresults["Qc_err"])
+        fitReport["Ql"].append(port.fitresults["Ql"])
+        fitReport["Ql_err"].append(port.fitresults["Ql_err"])
+        fitReport["Nph"].append(port.get_photons_in_resonator(power-attenuation,unit='dBm'))
+        fitReport["fr"].append(port.fitresults["fr"])
+        # fitReport["guessed_freq"].append()
+        
+    return fitReport
+
 def plot_QvsP(fit,label='',filename=False,file_res=300,log=True):
     fig, ax = plt.subplots(1)
     fig.dpi = file_res
@@ -236,9 +282,9 @@ def plot_QvsP(fit,label='',filename=False,file_res=300,log=True):
         ax.loglog()
     else:
         ax.semilogx()
-    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='Qi',fmt = "o")
-    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='Qc',fmt = "o")
-    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='Ql',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o")
     ax.legend()
     ax.set_xlabel('photon number')
     ax.set_ylabel('Q')
