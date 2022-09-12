@@ -22,6 +22,11 @@ def find_idx(array,values):
         idx.sort()
     return idx.astype(int)
 
+def find_slice(array,values):
+    idx_min = (np.abs(array - values[0])).argmin()
+    idx_max = (np.abs(array - values[1])).argmin() + 1
+    return slice(idx_min,idx_max)
+
 def rotate_complex(number,theta):
     # rotates a complex number by angle theta in degrees 
     return number * np.exp(1j * 2*np.pi * theta/360)
@@ -159,9 +164,9 @@ def force_aspect(ax,aspect=1):
     ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect)
     
 def set_axis_labels(ax,title='',xlabel='',ylabel='',fontsize=14,labelsize=12):
-    ax.set_title(title,fontsize=fontsize)
-    ax.set_xlabel(xlabel,fontsize=fontsize)
-    ax.set_ylabel(ylabel,fontsize=fontsize)
+    if title: ax.set_title(title,fontsize=fontsize)
+    if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize)
+    if ylabel: ax.set_ylabel(ylabel,fontsize=fontsize)
     ax.tick_params(labelsize=labelsize)
 
 def set_colorbar_labels(cb,clabel='',fontsize=14,labelsize=12):

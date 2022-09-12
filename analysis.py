@@ -183,6 +183,26 @@ def multiPeakFitCorrection(fitReport, threshold = 1):
                 fitReportCorr[key].append(fitReport[key][k])
     return fitReportCorr
 
+def fitCorrection(fitReport, threshold = 1):
+    # create empty dictionary
+    fitReportCorr = {}
+    bad_fit_idx = []
+    for key in fitReport.keys():
+        fitReportCorr[key] = []
+    
+    # add fit result only if the all the constrains pass
+    for k in range(len(fitReport["Qi"])):
+        bool_Qi = fitReport["Qi_err"][k] < threshold*fitReport["Qi"][k]
+        bool_Qc = fitReport["Qc_err"][k] < threshold*fitReport["Qc"][k]
+        bool_Ql = fitReport["Ql_err"][k] < threshold*fitReport["Ql"][k]
+        if bool_Qi and bool_Qc and bool_Ql:
+            for key in fitReportCorr.keys():
+                fitReportCorr[key].append(fitReport[key][k])
+        else:
+            bad_fit_idx.append(k)
+    return fitReportCorr, bad_fit_idx
+
+
 def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, port_type='notch', plot = False):
     fitReport = {
         "Qi" : [],
@@ -229,7 +249,7 @@ def fitPowerSweep(data, freq, center_freq, span, power, attenuation = 80, port_t
         
     return fitReport
 
-def fitFluxSweep(data, freq, center_freq, span, vflux, power, attenuation=80, port_type='notch', plot = False):
+def fitFluxSweep(data,freq,x,center_freq,span,power,attenuation=80,port_type='notch',plot=False):
     fitReport = {
         "Qi" : [],
         "Qi_err" : [],
@@ -241,8 +261,11 @@ def fitFluxSweep(data, freq, center_freq, span, vflux, power, attenuation=80, po
         "fr" : [],
         # "guessed_freq": freq[center_freq]
         }
-    # lowLimit = [centers[0]-int(spanPoints/2):centers[0]+int(spanPoints/2)]
-    for k in range(len(vflux)):
+    try: iter(center_freq)
+    except TypeError:
+        center_freq = [center_freq for ii in range(len(x))]
+        
+    for k in range(len(x)):
         if port_type == 'notch':
             port = circuit.notch_port()
         elif port_type == 'reflection':
