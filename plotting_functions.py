@@ -81,7 +81,8 @@ def phase_unwrap(freq,cData,fit_range=0.05):
     unwr_phase = np.unwrap(np.angle(cData))
     delay1,_ = np.polyfit(freq[0:int(fit_range*length)],unwr_phase[0:int(fit_range*length)],1)
     delay2,_ = np.polyfit(freq[int((1-fit_range)*length):-1],unwr_phase[int((1-fit_range)*length):-1],1)
-    cData_rot = cData*np.exp(-1j*(delay1+delay2)/2*freq)
+    delay_avg = (delay1+delay2)/2
+    cData_rot = cData*np.exp(-1j*delay_avg*freq)
     cData_rot_zero = cData_rot*np.exp(-1j*np.angle(cData_rot[0]))
     return np.angle(cData_rot_zero)
 
@@ -136,13 +137,13 @@ def plot_2D(x,y,z,colormap='viridis',vmin=None,vmax=None,labels=['','',''],title
     fig.tight_layout()
     return fig, ax, cb
 
-def plot_ampl_and_phase(freq,cData,label='',filename=False,file_res=300):
+def plot_ampl_and_phase(freq,cData,label='',filename=False,file_res=300,fit_range=0.05):
     fig, ax = plt.subplots(2)
     fig.dpi = file_res
     fig.set_figheight(5)
     fig.set_figwidth(9)
     ax[0].plot(freq,20*np.log10(np.abs(cData)),label='Amplitude (dB)')
-    ax[1].plot(freq,phase_unwrap(freq,cData)/np.pi,label=r'Phase ($\pi$)')
+    ax[1].plot(freq,phase_unwrap(freq,cData,fit_range=fit_range)/np.pi,label=r'Phase ($\pi$)')
     ax[0].set_ylabel('Amplitude (dB)')
     #ax[0].set_xticklabels([])
     ax[1].set_ylabel(r'Phase ($\pi$)')
@@ -224,11 +225,11 @@ def force_aspect(ax,aspect=1):
     extent =  im[0].get_extent()
     ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect)
     
-def set_axis_labels(ax,title='',xlabel='',ylabel='',fontsize=14,labelsize=12):
+def set_axis_labels(ax,title='',xlabel='',ylabel='',fontsize=14,ticksize=12):
     if title: ax.set_title(title,fontsize=fontsize)
     if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize)
     if ylabel: ax.set_ylabel(ylabel,fontsize=fontsize)
-    ax.tick_params(labelsize=labelsize)
+    ax.tick_params(labelsize=ticksize)
 
 def set_colorbar_labels(cb,clabel='',fontsize=14,labelsize=12):
     cb.set_label(clabel,fontsize=fontsize)

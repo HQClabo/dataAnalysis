@@ -6,6 +6,7 @@ Created on Mon Oct 10 14:42:41 2022
 """
 
 import Labber
+import numpy as np
 
 
 class LabberFile:
@@ -120,4 +121,20 @@ class LabberFile:
                 channels.append(self.log_file.getTraceXY(channel)[0])
         return tuple(channels)
     
+def slice_data(data, outer_dim, inner_dim):
+    """
+    
+
+    Returns
+    -------
+    None.
+
+    """
+    data_sliced = np.zeros([outer_dim,inner_dim,data.shape[1]])
+    for ii in range(outer_dim):
+        print(data_sliced.shape)
+        data_sliced[ii] = data[ii:ii+inner_dim]
+    return data_sliced
+        
+
 
