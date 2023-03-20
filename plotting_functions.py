@@ -158,8 +158,8 @@ def plot_ampl_and_phase(freq,cData,label='',filename=False,file_res=300,fit_rang
 def plot_ampl(freq,cData,label='',filename=False,file_res=300):
     fig, ax = plt.subplots(1)
     fig.dpi = file_res
-    fig.set_figheight(6)
-    fig.set_figwidth(15)
+    fig.set_figheight(5)
+    fig.set_figwidth(9)
     if len(freq.shape) == 2:
         for ii in range(freq.shape[0]):
             ax.plot(freq[ii],20*np.log10(np.abs(cData[ii])),label='Amplitude (dB)')
