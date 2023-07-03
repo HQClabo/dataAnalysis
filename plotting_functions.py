@@ -89,10 +89,10 @@ def phase_unwrap(freq,cData,fit_range=0.05):
 
 #%% plotting functions
 
-def plot_1D(x,y,labels=['',''],title='',linetype='-',fontsize=14,res=300):
+def plot_1D(x,y,labels=['',''],title='',fontsize=14,res=300,**kwargs):
     fig, ax = plt.subplots(1)
     fig.dpi = res
-    ax.plot(x,y,linetype)
+    ax.plot(x,y,**kwargs)
     ax.set_xlabel(labels[0], fontsize=fontsize)
     ax.set_ylabel(labels[1], fontsize=fontsize)
     ax.set_title(title)
@@ -100,11 +100,11 @@ def plot_1D(x,y,labels=['',''],title='',linetype='-',fontsize=14,res=300):
     fig.tight_layout()
     return fig, ax
 
-def plot_1D_multiple(x,y,axis_labels=['',''],title='',linetype='-',fontsize=14,res=300):
+def plot_1D_multiple(x,y,axis_labels=['',''],title='',fontsize=14,res=300,**kwargs):
     fig, ax = plt.subplots(1)
     fig.dpi = res
     for ii in range(len(x)):
-        ax.plot(x[ii],y[ii],linetype)
+        ax.plot(x[ii],y[ii],**kwargs)
     ax.set_xlabel(axis_labels[0], fontsize=fontsize)
     ax.set_ylabel(axis_labels[1], fontsize=fontsize)
     ax.set_title(title)
@@ -208,7 +208,7 @@ def plot2D_power_VS_freq(out,freq,cData,power,p_in=0,label='0'):
 
 #%% functions for manipulating plots
 
-def set_axis_size(w,h, ax=None):
+def set_axis_size(w,h, ax=None, tight_layout=True):
     """ w, h: width, height """
     if not ax: ax=plt.gca()
     l = ax.figure.subplotpars.left
@@ -219,6 +219,7 @@ def set_axis_size(w,h, ax=None):
     figh = float(h)/(t-b)
     ax.figure.set_figwidth(figw)
     ax.figure.set_figheight(figh)
+    if tight_layout: ax.figure.tight_layout()
     
 def force_aspect(ax,aspect=1):
     im = ax.get_images()
