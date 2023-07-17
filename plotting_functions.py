@@ -89,22 +89,28 @@ def phase_unwrap(freq,cData,fit_range=0.05):
 
 #%% plotting functions
 
-def plot_1D(x,y,labels=['',''],title='',fontsize=14,res=300,**kwargs):
-    fig, ax = plt.subplots(1)
+def plot_1D(x,y,ax=None,labels=['',''],title='',linetype='-',fontsize=14,res=300):
+    if ax==None:
+        fig, ax = plt.subplots(1)
+    else:
+        fig = ax.get_figure()
     fig.dpi = res
-    ax.plot(x,y,**kwargs)
+    ax.plot(x,y,linetype)
     ax.set_xlabel(labels[0], fontsize=fontsize)
     ax.set_ylabel(labels[1], fontsize=fontsize)
     ax.set_title(title)
-    ax.grid()
+    ax.grid(True)
     fig.tight_layout()
     return fig, ax
 
-def plot_1D_multiple(x,y,axis_labels=['',''],title='',fontsize=14,res=300,**kwargs):
-    fig, ax = plt.subplots(1)
+def plot_1D_multiple(x,y,ax=None,axis_labels=['',''],title='',linetype='-',fontsize=14,res=300):
+    if ax==None:
+        fig, ax = plt.subplots(1)
+    else:
+        fig = ax.get_figure()
     fig.dpi = res
     for ii in range(len(x)):
-        ax.plot(x[ii],y[ii],**kwargs)
+        ax.plot(x[ii],y[ii],linetype)
     ax.set_xlabel(axis_labels[0], fontsize=fontsize)
     ax.set_ylabel(axis_labels[1], fontsize=fontsize)
     ax.set_title(title)
