@@ -50,7 +50,11 @@ cm_data = [[0.2081, 0.1663, 0.5292], [0.2116238095, 0.1897809524, 0.5776761905],
   0.0948380952], [0.9661, 0.9514428571, 0.0755333333], 
  [0.9763, 0.9831, 0.0538]]
 
+cm_data_r = cm_data
+cm_data_r.reverse()                                           
+
 parula_map = LinearSegmentedColormap.from_list('parula', cm_data)
+parula_map_r = LinearSegmentedColormap.from_list('parula', cm_data_r)
 # For use of "viscm view"
 test_cm = parula_map
 
