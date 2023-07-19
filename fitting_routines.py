@@ -10,14 +10,31 @@ import numpy as np
 from scipy import optimize as opt
 
 
+# class to use 
 class CombinedFitModel:
     def __init__(self,data1,data2):
         self.data1 = data1
         self.data2 = data2
 
-    def define_fit_functions(self,fit_func1,fit_func2):
-        self.fit_func1 = fit_func1
-        self.fit_func2 = fit_func2
+    def fit_func1(self):
+        print('''
+fit_func1 is not defined by the user yet.')
+Please define your function before creating the object:
+def custom_function(self):
+    return 1
+CombinedFitModel.fit_func1 = custom_function(self)
+object = CombinedFitModel(data1,data2)
+''')
+
+    def fit_func2(self):
+        print('''
+fit_func1 is not defined by the user yet.')
+Please define your function before creating the object:
+def custom_function(self):
+    return 1
+CombinedFitModel.fit_func2 = custom_function(self)
+object = CombinedFitModel(data1,data2)
+''')
 
     def do_combo_fit(self,x_values, **kwargs):
         combined_data = np.append(self.data1,self.data2)
@@ -36,7 +53,5 @@ class CombinedFitModel:
         return np.append(fit1, fit2)
     
     
-# example use
-
 
 
