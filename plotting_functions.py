@@ -214,6 +214,41 @@ def plot2D_power_VS_freq(out,freq,cData,power,p_in=0,label='0'):
 
 #%% functions for manipulating plots
 
+def format_plot(ax,
+                title='',
+                xlabel='',
+                ylabel='',
+                clabel='',
+                x_lim=None,
+                y_lim=None,
+                res=300,
+                fontsize=None,
+                grid=False,
+                label_kw={},
+                tick_kw={},
+                ):
+    
+    fig = ax.get_figure()
+    fig.dpi = res
+    if title: fig.suptitle(title,fontsize=fontsize)
+    if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize)
+    if ylabel: ax.set_ylabel(ylabel,fontsize=fontsize)
+    ax.tick_params(**tick_kw)
+    ax.grid(grid)
+    if x_lim: ax.set_xlim(*x_lim)
+    if y_lim: ax.set_ylim(*y_lim)
+
+def format_colorbar(cb,
+                    clabel='',
+                    fontsize=None,
+                    labelpos='right',
+                    label_kw={},
+                    tick_kw={}
+                    ):
+    if labelpos=='right': cb.set_label(clabel,fontsize=fontsize,**label_kw)
+    if labelpos=='top': cb.ax.set_title(clabel,fontsize=fontsize,**label_kw)
+    cb.ax.tick_params(**tick_kw)
+
 def set_axis_size(w,h, ax=None, tight_layout=True):
     """ w, h: width, height """
     if not ax: ax=plt.gca()
