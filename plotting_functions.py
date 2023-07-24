@@ -84,41 +84,41 @@ def phase_unwrap(freq,cData,fit_range=0.05):
     delay_avg = (delay1+delay2)/2
     cData_rot = cData*np.exp(-1j*delay_avg*freq)
     cData_rot_zero = cData_rot*np.exp(-1j*np.angle(cData_rot[0]))
-    return np.angle(cData_rot_zero)
+    return cData_rot_zero
 
 
 #%% plotting functions
 
-def plot_1D(x,y,ax=None,labels=['',''],title='',linetype='-',fontsize=14,res=300):
+def plot_1D(x,y,ax=None,labels=['',''],title='',fontsize=14,res=300,grid=False,**kwargs):
     if ax==None:
         fig, ax = plt.subplots(1)
     else:
         fig = ax.get_figure()
     fig.dpi = res
-    ax.plot(x,y,linetype)
+    ax.plot(x,y,**kwargs)
     ax.set_xlabel(labels[0], fontsize=fontsize)
     ax.set_ylabel(labels[1], fontsize=fontsize)
     ax.set_title(title)
-    ax.grid(True)
+    ax.grid(grid)
     fig.tight_layout()
     return fig, ax
 
-def plot_1D_multiple(x,y,ax=None,axis_labels=['',''],title='',linetype='-',fontsize=14,res=300):
+def plot_1D_multiple(x,y,ax=None,axis_labels=['',''],title=''fontsize=14,res=300,grid=False,**kwargs):
     if ax==None:
         fig, ax = plt.subplots(1)
     else:
         fig = ax.get_figure()
     fig.dpi = res
     for ii in range(len(x)):
-        ax.plot(x[ii],y[ii],linetype)
+        ax.plot(x[ii],y[ii],**kwargs)
     ax.set_xlabel(axis_labels[0], fontsize=fontsize)
     ax.set_ylabel(axis_labels[1], fontsize=fontsize)
     ax.set_title(title)
-    ax.grid()
+    ax.grid(grid)
     fig.tight_layout()
     return fig, ax
 
-def plot_2D(x,y,z,colormap='viridis',vmin=None,vmax=None,labels=['','',''],title='',logscale=False,aspect=1,fontsize=14,res=300):
+def plot_2D(x,y,z,vmin=None,vmax=None,labels=['','',''],title='',logscale=False,aspect=1,fontsize=14,res=300,**kwargs):
     fig, ax = plt.subplots(1)
     fig.dpi = res
     if logscale:
@@ -131,9 +131,9 @@ def plot_2D(x,y,z,colormap='viridis',vmin=None,vmax=None,labels=['','',''],title
         vmax = z_plot.max()
     # ax.set_aspect((x.max()-x.min())/(y.max()-y.min()))
     if logscale:
-        plot2d = ax.pcolormesh(x,y,abs(z),cmap=colormap,norm=colors.LogNorm(vmin=vmin, vmax=vmax))
+        plot2d = ax.pcolormesh(x,y,abs(z),norm=colors.LogNorm(vmin=vmin, vmax=vmax), **kwargs)
     else:
-        plot2d = ax.pcolormesh(x,y,z,cmap=colormap,vmin=vmin,vmax=vmax)
+        plot2d = ax.pcolormesh(x,y,z,vmin=vmin,vmax=vmax, **kwargs)
     ax.set_aspect(aspect/ax.get_data_ratio())
     ax.set_xlabel(labels[0], fontsize=fontsize)
     ax.set_ylabel(labels[1], fontsize=fontsize)
@@ -149,10 +149,10 @@ def plot_ampl_and_phase(freq,cData,label='',filename=False,file_res=300,fit_rang
     fig.set_figheight(5)
     fig.set_figwidth(9)
     ax[0].plot(freq,20*np.log10(np.abs(cData)),label='Amplitude (dB)')
-    ax[1].plot(freq,phase_unwrap(freq,cData,fit_range=fit_range)/np.pi,label=r'Phase ($\pi$)')
+    ax[1].plot(freq,np.angle(phase_unwrap(freq,cData,fit_range=fit_range))*180/np.pi,label=r'Phase (°)')
     ax[0].set_ylabel('Amplitude (dB)')
     #ax[0].set_xticklabels([])
-    ax[1].set_ylabel(r'Phase ($\pi$)')
+    ax[1].set_ylabel(r'Phase (°)')
     ax[1].set_xlabel('Frequency (Hz)')
     fig.suptitle(label)
     ax[0].grid()
@@ -160,6 +160,7 @@ def plot_ampl_and_phase(freq,cData,label='',filename=False,file_res=300,fit_rang
     fig.tight_layout()
     if filename:
         plt.savefig(filename,dpi=file_res)
+    return fig, ax
 
 def plot_ampl(freq,cData,label='',filename=False,file_res=300):
     fig, ax = plt.subplots(1)
@@ -178,6 +179,7 @@ def plot_ampl(freq,cData,label='',filename=False,file_res=300):
     fig.tight_layout()
     if filename:
         plt.savefig(filename,dpi=file_res)
+    return fig, ax
 
 def plot_peak_vs_power(freq,cData,power,label=''):
     for ii in range(len(power)):
