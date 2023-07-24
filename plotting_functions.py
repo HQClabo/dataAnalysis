@@ -103,7 +103,7 @@ def plot_1D(x,y,ax=None,labels=['',''],title='',fontsize=14,res=300,grid=False,*
     fig.tight_layout()
     return fig, ax
 
-def plot_1D_multiple(x,y,ax=None,axis_labels=['',''],title=''fontsize=14,res=300,grid=False,**kwargs):
+def plot_1D_multiple(x,y,ax=None,axis_labels=['',''],title='',fontsize=14,res=300,grid=False,**kwargs):
     if ax==None:
         fig, ax = plt.subplots(1)
     else:
