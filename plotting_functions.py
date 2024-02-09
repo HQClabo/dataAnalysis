@@ -73,8 +73,8 @@ def rotate_complex(number,theta):
     # rotates a complex number by angle theta in degrees 
     return number * np.exp(1j * 2*np.pi * theta/360)
 
-def moving_average(x,N,axis=-1):
-    return uniform_filter1d(x, N, axis=axis, mode='constant', origin=0)
+def moving_average(x,N,axis=-1,**kwargs):
+    return uniform_filter1d(x, N, axis=axis, **kwargs)
     
 def phase_unwrap(freq,cData,fit_range=0.05):
     length = len(freq)

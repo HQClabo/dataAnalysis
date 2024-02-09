@@ -176,16 +176,16 @@ def fit_multi_peak(data,freq,center_freqs,span,power,attenuation=80,port_type='n
         fitReport["fr"].append(port.fitresults["fr"])
     return fitReport
 
-def plot_QvsP(fit,label='',filename=False,file_res=300,log=True):
+def plot_QvsP(fit,label='',filename=False,file_res=300,log=True,**kwargs):
     fig, ax = plt.subplots(1)
     fig.dpi = file_res
     if log:
         ax.loglog()
     else:
         ax.semilogx()
-    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o")
-    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o")
-    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o")
+    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('photon number')
     ax.set_ylabel('Q')
@@ -389,6 +389,54 @@ def multiPeakFitCorrection(fitReport, threshold = 1):
         if bool_Qi and bool_Qc and bool_Ql:
             for key in fitReportCorr.keys():
                 fitReportCorr[key].append(fitReport[key][k])
+    return fitReportCorr
+
+def peakFitCorrection(fitReport,
+                      params_to_check = ['Qi_dia_corr', 'absQc', 'Ql'],
+                      thresholds = 1):
+    """
+    Parameters
+    ----------
+    fitReport : dict
+        Dictionary that contains the parameters from a fitresult.
+    params_to_check : Sequence of Strings, optional
+        List of strings that will be compared with their fitting error.
+        The default is ['Qi_dia_corr', 'absQc', 'Ql'].
+    thresholds : float or Sequence, optional
+        Relative threshold value the error must fall below in order to pass.
+        If a single float is given, the same value is used for all parameters.
+        Individual theshold values for each parameter can be passed as a list.
+        The default is 1.
+
+    Returns
+    -------
+    fitReportCorr : dict
+        Dictionary of the same shape as fitReport that contains the results
+        that passed the checks.
+
+    """
+    # create empty dictionary
+    fitReportCorr = {}
+    for key in fitReport.keys():
+        fitReportCorr[key] = np.array([])
+        
+    # if thresholds is a single number, the same value will be used for all
+    if hasattr(thresholds, '__iter__'):
+        if len(thresholds) != len(params_to_check):
+            print(f'The length of thresholds ({len(thresholds)}) need to match that of params_to_check ({len(params_to_check)}).')
+            return 
+    else:
+        thresholds = [thresholds]*len(params_to_check)
+    
+    # add fit result only if the all the constrains pass
+    
+    for k in range(len(fitReport[params_to_check[0]])):
+        bools = []
+        for i, param in enumerate(params_to_check):            
+            bools.append(fitReport[param+'_err'][k] < thresholds[i]*fitReport[param][k])
+        if all(bools):
+            for key in fitReportCorr.keys():
+                fitReportCorr[key] = np.append(fitReportCorr[key],fitReport[key][k])
     return fitReportCorr
 
 
