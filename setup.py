@@ -18,5 +18,8 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
+    dependency_links=[
+        'git+https://github.com/HQClabo/dataAnalysis#egg=dataAnalysis'
+    ],
     python_requires='>=3.6',
 )
