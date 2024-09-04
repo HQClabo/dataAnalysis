@@ -342,27 +342,44 @@ class PowerScanVNA(DataSet):
         Returns:
             None
         """
+        for key, param in self.dependent_parameters.items():
+            if 'magnitude' in param['paramspec'].name: 
+                self.name_mag = key
+            if 'phase' in param['paramspec'].name: 
+                self.name_phase = key
         for key, param in self.independent_parameters.items():
-            if 'power' in param['paramspec'].name: self.name_power = key
+            if 'frequency' in param['paramspec'].name: 
+                self.name_freq = key
+                
+        self.freq = self.independent_parameters[self.name_freq]['values']
+        self.mag = self.dependent_parameters[self.name_mag]['values']
+        self.phase = self.dependent_parameters[self.name_phase]['values']
+        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+        
+        
+        for key, param in self.independent_parameters.items():
+            if 'power' in param['paramspec'].name: 
+                self.name_power = key
         self.power = self.independent_parameters[self.name_power]['values']
 
-        if freq_range:
-            freq_slice = self.find_slice(freq,freq_range)
-        else:
-            freq_slice = slice(0,len(freq))
-        if power_range:
-            power_slice = self.find_slice(power,power_range)
-        else:
-            power_slice = slice(0,len(power))
 
-        self.freq = freq [freq_slice]
-        self.power = power[power_slice]
-        if self.name_freq == 'x':
-            self.mag = mag[power_slice,freq_slice]
-            self.phase = phase[power_slice,freq_slice]
+        if freq_range:
+            freq_slice = self.find_slice(self.freq,freq_range)
         else:
-            self.mag = mag[freq_slice,power_slice]
-            self.phase = phase[freq_slice,power_slice]
+            freq_slice = slice(0,len(self.freq))
+        if power_range:
+            power_slice = self.find_slice(self.power,power_range)
+        else:
+            power_slice = slice(0,len(self.power))
+
+        self.freq = self.freq [freq_slice]
+        self.power = self.power[power_slice]
+        if self.name_freq == 'x':
+            self.mag = self.mag[power_slice,freq_slice]
+            self.phase = self.phase[power_slice,freq_slice]
+        else:
+            self.mag = self.mag[freq_slice,power_slice]
+            self.phase = self.phase[freq_slice,power_slice]
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
 
