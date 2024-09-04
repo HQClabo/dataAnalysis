@@ -113,12 +113,30 @@ class DataSet():
         self.independent_parameters[copy_name]['name'] = copy_name
 
     def get_parameter_by_name(self, name):
+        print('Deprecated function - Use get_independent_parameter_by_name or get_dependent_parameter_by_name instead.')
+
+    def get_independent_parameter_by_name(self, name):
+        param = None
+        first_match = True
         for key in self.independent_parameters.keys():
             if name in self.independent_parameters[key]['paramspec'].name:
-                param = self.independent_parameters[key]
+                if first_match:
+                    param = self.independent_parameters[key]
+                    first_match = False
+                else:
+                    print(f"Warning: {name} is the second match found in independent_parameters. Returning {param['paramspec'].name} instead.")
+        return param
+
+    def get_dependent_parameter_by_name(self, name):
+        param = None
+        first_match = True
         for key in self.dependent_parameters.keys():
             if name in self.dependent_parameters[key]['paramspec'].name:
-                param = self.dependent_parameters[key]
+                if first_match:
+                    param = self.dependent_parameters[key]
+                    first_match = False
+                else:
+                    print(f"Warning: {name} is the second match found in independent_parameters. Returning {param['paramspec'].name} instead.")
         return param
 
     def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=False):
@@ -245,12 +263,13 @@ class DataSet():
             data_derived = np.gradient(data, x_vals, axis=axis)
             self.dependent_parameters[param_name+'_derived']['values'] = data_derived
 
-    def plot_1D(self, params_to_plot=None, title=None, **kwargs):
+    def plot_1D(self, params_to_plot=None, x_range=None, title=None, **kwargs):
         """
         Plots 1D data based on the specified parameters.
 
         Args:
             params_to_plot (list or str, optional): List of parameter names to plot. If not provided, all dependent parameters will be plotted. Defaults to None.
+            x_range (list, optional): List of the plotting limits of the x-axis. Defaults to None (max range).
             title (str, optional): Plot title to add after run_id and experiment name. Defaults to None.
             **kwargs: Additional keyword arguments to be passed to the `plt.plot` function.
 
@@ -284,8 +303,12 @@ class DataSet():
                 if param['paramspec'].name == x_param_name: x_key = key
             x_param = self.independent_parameters[x_key]
             y_param = self.dependent_parameters[param_name]
-            x_plot = x_param['values']
-            y_plot = y_param['values']
+            x_vals = x_param['values']
+            x_slice = slice(0,None)
+            if x_range: x_slice = self.find_slice(x_vals, x_range)
+            
+            x_plot = x_vals[x_slice]
+            y_plot = y_param['values'][x_slice]
             
             fig,ax = plt.subplots()
             figs.append(fig)
@@ -298,7 +321,7 @@ class DataSet():
             _rescale_ticks_and_units(ax, ds_plot_data)
         return figs,axes
 
-    def plot_1D_cut(self, params_to_plot=None, cut_value=None, cut_idx=None, axis=0, title=None, **kwargs):
+    def plot_1D_cut(self, params_to_plot=None, cut_value=None, cut_idx=None, x_range=None, axis=0, title=None, **kwargs):
         """
         Plots 1D data cut based on the specified parameters.
 
@@ -306,6 +329,7 @@ class DataSet():
             params_to_plot (list or str, optional): List of parameter names to plot. If not provided, all dependent parameters will be plotted. Defaults to None.
             cut_value (float, optional): The value at which to cut the data. Specify only one of cut_value and cut_idx. Defaults to None.
             cut_idx (int, optional): The index at which to cut the data. Specify only one of cut_value and cut_idx. Defaults to None.
+            x_range (list, optional): List of the plotting limits of the x-axis. Defaults to None (max range).
             title (str, optional): Plot title to add after run_id and experiment name. Defaults to None.
             **kwargs: Additional keyword arguments to be passed to the `plt.plot` function.
 
@@ -359,6 +383,11 @@ class DataSet():
                 z_plot = z_param['values'][:,cut_idx]
             else:
                 z_plot = z_param['values'][cut_idx]
+
+            x_slice = slice(0,None)
+            if x_range: x_slice = self.find_slice(x_plot, x_range)
+            x_plot = x_plot[x_slice]
+            z_plot = z_plot[x_slice]
             
             fig, ax = plt.subplots()
             figs.append(fig)
@@ -371,13 +400,15 @@ class DataSet():
             _rescale_ticks_and_units(ax, ds_plot_data)
         return figs,axes
     
-    def plot_2D(self, params_to_plot=None, cmap='viridis', transpose=False, title=None, **kwargs):
+    def plot_2D(self, params_to_plot=None, cmap='viridis', x_range=None, y_range=None, transpose=False, title=None, **kwargs):
         """
         Plots 2D data based on the specified parameters.
 
         Args:
             params_to_plot (list or str, optional): List of parameter names to plot. If not provided, all dependent parameters will be plotted. Defaults to None.
             cmap (str, optional): The colormap to use for the plot. Defaults to 'viridis'.
+            x_range (list, optional): List of the plotting limits of the x-axis. Defaults to None (max range).
+            y_range (list, optional): List of the plotting limits of the y-axis. Defaults to None (max range).
             transpose (bool, optional): Whether to transpose the data. Defaults to False.
             title (str, optional): Plot title to add after run_id and experiment name. Defaults to None.
             **kwargs: Additional keyword arguments to be passed to the `qc.dataset.plotting.plot_on_a_plain_grid` function.
@@ -418,10 +449,15 @@ class DataSet():
             x_vals = x_param['values']
             y_vals = y_param['values']
             
-            x_plot = np.tile(x_vals,(len(y_vals),1))
-            y_plot = np.tile(y_vals,(len(x_vals),1)).T
-            z_plot = z_param['values']
+            x_slice = slice(0,None)
+            y_slice = slice(0,None)
+            if x_range: x_slice = self.find_slice(x_vals, x_range)
+            if y_range: y_slice = self.find_slice(y_vals, y_range)
             
+            x_plot = np.tile(x_vals,(len(y_vals),1))[y_slice, x_slice]
+            y_plot = np.tile(y_vals,(len(x_vals),1)).T[y_slice, x_slice]
+            z_plot = z_param['values'][y_slice, x_slice]
+
             fig, ax = plt.subplots()
             ax, cb = qc.dataset.plotting.plot_on_a_plain_grid(x_plot, y_plot, z_plot, ax, cmap=cmap, **kwargs)
             ax.set_xlabel(x_param['paramspec'].label + f" ({x_param['paramspec'].unit})")
