@@ -226,15 +226,17 @@ def format_plot(ax,
                 res=300,
                 fontsize=None,
                 grid=False,
-                label_kw={},
+                title_kw={},
+                xlabel_kw={},
+                ylabel_kw={},
                 tick_kw={},
                 ):
     
     fig = ax.get_figure()
     fig.dpi = res
-    if title: fig.suptitle(title,fontsize=fontsize)
-    if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize)
-    if ylabel: ax.set_ylabel(ylabel,fontsize=fontsize)
+    if title: fig.suptitle(title,fontsize=fontsize,**title_kw)
+    if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize,**xlabel_kw)
+    if ylabel: ax.set_ylabel(ylabel,fontsize=fontsize,**ylabel_kw)
     ax.tick_params(**tick_kw)
     ax.grid(grid)
     if x_lim: ax.set_xlim(*x_lim)

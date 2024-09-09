@@ -17,7 +17,7 @@ class ResonatorFitNotch:
     """
     Class for fitting a resonator reflection to a model with a Lorentzian resonance and a linear background.
     Add the data using port.add_data, port.add_froms2p or port.add_fromtxt before fitting.
-    The fitting function S11_resonator_notch can be redefine by the user.
+    The fitting function S21_resonator_notch can be redefine by the user.
     """
 
     def __init__(self):
@@ -26,7 +26,7 @@ class ResonatorFitNotch:
     
     def S21_resonator_notch(self, fdrive, f0, kappa_int, kappa_ext, a, alpha, tau, phi0):
         delta_r = fdrive - f0
-        S21 = (delta_r - 1j/2*(kappa_int + kappa_ext(1-np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa_ext + kappa_int))
+        S21 = (delta_r - 1j/2*(kappa_int + kappa_ext*(1-np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa_ext + kappa_int))
         environment = a * np.exp(1j*(alpha - tau*2*np.pi*fdrive))
         return S21 * environment
 
@@ -54,7 +54,6 @@ class ResonatorFitNotch:
             The result of the fit, including the optimal values for the fit parameters.
         """
         
-        fspan = 100e6
         if fspan:
             self.port.cut_data(fcenter-fspan/2, fcenter+fspan/2)
 
@@ -144,7 +143,6 @@ class ResonatorFitReflection:
             The result of the fit, including the optimal values for the fit parameters.
         """
         
-        fspan = 100e6
         if fspan:
             self.port.cut_data(fcenter-fspan/2, fcenter+fspan/2)
 
