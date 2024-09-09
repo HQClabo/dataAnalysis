@@ -143,7 +143,7 @@ class FrequencyScanVNA(DataSetVNA):
         return S11 * environment
 
 
-class PowerScanVNA(DataSet):
+class PowerScanVNA(DataSetVNA):
     def __init__(self, run_id=None, exp=None, station=None, freq_range=None, power_range=None):
         super().__init__(run_id, exp, station)
         self.extract_data_vna(freq_range, power_range)
@@ -342,45 +342,59 @@ class PowerScanVNA(DataSet):
         Returns:
             None
         """
-        for key, param in self.dependent_parameters.items():
-            if 'magnitude' in param['paramspec'].name: 
-                self.name_mag = key
-            if 'phase' in param['paramspec'].name: 
-                self.name_phase = key
-        for key, param in self.independent_parameters.items():
-            if 'frequency' in param['paramspec'].name: 
-                self.name_freq = key
+        # for key, param in self.dependent_parameters.items():
+        #     if 'magnitude' in param['paramspec'].name: 
+        #         self.name_mag = key
+        #     if 'phase' in param['paramspec'].name: 
+        #         self.name_phase = key
+        # for key, param in self.independent_parameters.items():
+        #     if 'frequency' in param['paramspec'].name: 
+        #         self.name_freq = key
                 
-        self.freq = self.independent_parameters[self.name_freq]['values']
-        self.mag = self.dependent_parameters[self.name_mag]['values']
-        self.phase = self.dependent_parameters[self.name_phase]['values']
-        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
-        
+
+        # self.freq = self.independent_parameters[self.name_freq]['values']
+        # self.mag = self.dependent_parameters[self.name_mag]['values']
+        # self.phase = self.dependent_parameters[self.name_phase]['values']
+        # self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
         
         for key, param in self.independent_parameters.items():
             if 'power' in param['paramspec'].name: 
                 self.name_power = key
         self.power = self.independent_parameters[self.name_power]['values']
 
-
-        if freq_range:
-            freq_slice = self.find_slice(self.freq,freq_range)
-        else:
-            freq_slice = slice(0,len(self.freq))
-        if power_range:
-            power_slice = self.find_slice(self.power,power_range)
-        else:
-            power_slice = slice(0,len(self.power))
-
-        self.freq = self.freq [freq_slice]
+        freq_slice = slice(0,None)
+        power_slice = slice(0,None)
+        if freq_range: freq_slice = self.find_slice(self.freq, freq_range)
+        if power_range: power_slice = self.find_slice(self.power, power_range)
+        
+        self.freq = self.freq[freq_slice]
         self.power = self.power[power_slice]
         if self.name_freq == 'x':
-            self.mag = self.mag[power_slice,freq_slice]
-            self.phase = self.phase[power_slice,freq_slice]
+            slice_2d = (power_slice, freq_slice)
         else:
-            self.mag = self.mag[freq_slice,power_slice]
-            self.phase = self.phase[freq_slice,power_slice]
-        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+            slice_2d = (freq_slice, power_slice)
+        self.mag = self.cData[slice_2d]
+        self.phase = self.cData[slice_2d]
+        self.cData = self.cData[slice_2d]
+
+        # if freq_range:
+        #     freq_slice = self.find_slice(self.freq,freq_range)
+        # else:
+        #     freq_slice = slice(0,len(self.freq))
+        # if power_range:
+        #     power_slice = self.find_slice(self.power,power_range)
+        # else:
+        #     power_slice = slice(0,len(self.power))
+
+        # self.freq = self.freq [freq_slice]
+        # self.power = self.power[power_slice]
+        # if self.name_freq == 'x':
+        #     self.mag = self.mag[power_slice,freq_slice]
+        #     self.phase = self.phase[power_slice,freq_slice]
+        # else:
+        #     self.mag = self.mag[freq_slice,power_slice]
+        #     self.phase = self.phase[freq_slice,power_slice]
+        # self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
 
     # def extract_data_vna(self, freq_range=None, power_range=None):
@@ -456,9 +470,9 @@ class PowerScanVNA(DataSet):
 
 
 class BScanVNA(DataSetVNA):
-    def __init__(self, run_id, exp=None, station=None, freq_range=None, magnet_range=None):
+    def __init__(self, run_id, exp=None, station=None, field_param_name='Field', freq_range=None, field_range=None):
         super().__init__(run_id, exp, station)
-        self.extract_data_vna(freq_range, power_range)
+        self.extract_data_vna(field_param_name, freq_range, field_range)
 
     def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', do_plots=True):
 
@@ -511,91 +525,116 @@ class BScanVNA(DataSetVNA):
             fit_report['fitresults'][k] = port.fitresults
         self.fit_report = fit_report
 
-    def extract_data_vna(self, freq_range=None, bfield_range=None, bfield_param_name='field'):
+    def extract_data_vna(self, field_param_name, freq_range=None, field_range=None):
         """
         Extracts data from a VNA (Vector Network Analyzer) measurement.
 
         Args:
             freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
-            bfield_range (tuple, optional): Magnetic field range to extract data from. Defaults to None.
-            bfield_param_name (string, optional): String contained in the magnetic field parameter name. Defaults to "field".
+            field_range (tuple, optional): Magnetic field range to extract data from. Defaults to None.
+            field_param_name (string, optional): String contained in the magnetic field parameter name. Defaults to "field".
             
         Returns:
             None
         """
         for key, param in self.independent_parameters.items():
-            if bfield_param_name in param['paramspec'].name: self.name_bfield = key
-        self.bfield = self.independent_parameters[self.name_bfield]['values']
+            if field_param_name in param['paramspec'].name: self.name_field = key
+        self.field = self.independent_parameters[self.name_field]['values']
 
-        if freq_range:
-            freq_slice = self.find_slice(freq,freq_range)
-        else:
-            freq_slice = slice(0,len(freq))
-        if power_range:
-            bfield_slice = self.find_slice(self.bfield,bfield_slice)
-        else:
-            bfield_slice = slice(0,len(power))
+        # if freq_range:
+        #     freq_slice = self.find_slice(freq,freq_range)
+        # else:
+        #     freq_slice = slice(0,len(freq))
+        # if field_range:
+        #     field_slice = self.find_slice(self.field,field_slice)
+        # else:
+        #     field_slice = slice(0,len(power))
 
-        self.freq = freq [freq_slice]
-        self.bfield = power[bfield_slice]
+        # self.freq = freq [freq_slice]
+        # self.field = power[field_slice]
+        # if self.name_freq == 'x':
+        #     self.mag = mag[field_slice,freq_slice]
+        #     self.phase = phase[field_slice,freq_slice]
+        # else:
+        #     self.mag = mag[freq_slice,field_slice]
+        #     self.phase = phase[freq_slice,field_slice]
+        # self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+
+        freq_slice = slice(0,None)
+        field_slice = slice(0,None)
+        if freq_range: freq_slice = self.find_slice(self.freq, freq_range)
+        if field_range: field_slice = self.find_slice(self.field, field_range)
+        
+        self.freq = self.freq[freq_slice]
+        self.field = self.field[field_slice]
         if self.name_freq == 'x':
-            self.mag = mag[bfield_slice,freq_slice]
-            self.phase = phase[bfield_slice,freq_slice]
+            slice_2d = (field_slice, freq_slice)
         else:
-            self.mag = mag[freq_slice,bfield_slice]
-            self.phase = phase[freq_slice,bfield_slice]
-        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+            slice_2d = (freq_slice, field_slice)
+        self.mag = self.cData[slice_2d]
+        self.phase = self.cData[slice_2d]
+        self.cData = self.cData[slice_2d]
 
     
-    def extract_data(self, freq_range=None, b_range=None):
-        conn = None
-        if self.exp: conn = self.exp.conn
+    # def extract_data(self, freq_range=None, b_range=None):
+    #     conn = None
+    #     if self.exp: conn = self.exp.conn
  
-        dataset = qc.load_by_id(self.run_id, conn)
-        df = dataset.to_pandas_dataframe()
-        for key in df.keys():
-            if 'magnitude' in key: instr_name_mag = key
-            if 'phase' in key: instr_name_phase = key
-        for key in df.index.names:
-            if 'frequency' in key: instr_name_freq = key
-            # if 'power' in key: instr_name_power = key
-        data_pivot = df.pivot_table(index=instr_name_power, columns=instr_name_freq)
+    #     dataset = qc.load_by_id(self.run_id, conn)
+    #     df = dataset.to_pandas_dataframe()
+    #     for key in df.keys():
+    #         if 'magnitude' in key: instr_name_mag = key
+    #         if 'phase' in key: instr_name_phase = key
+    #     for key in df.index.names:
+    #         if 'frequency' in key: instr_name_freq = key
+    #         # if 'power' in key: instr_name_power = key
+    #     data_pivot = df.pivot_table(index=instr_name_power, columns=instr_name_freq)
 
-        freq = data_pivot[instr_name_mag].columns.values
-        power = data_pivot[instr_name_mag].index.values
-        if freq_range:
-            freq_slice = self.find_slice(freq,freq_range)
-        else:
-            freq_slice = slice(0,len(freq))
-        # if power_range:
-        #     power_slice = self.find_slice(power,power_range)
-        # else:
-            # power_slice = slice(0,len(power))
-        self.freq = freq[freq_slice]
-        # self.power = power[power_slice]
-        self.mag = data_pivot[instr_name_mag].values[power_slice,freq_slice]
-        self.phase = data_pivot[instr_name_phase].values[power_slice,freq_slice]
-        self.cData = 10**(self.mag/20) * (np.cos(self.phase) + 1j*np.sin(self.phase))[power_slice,freq_slice]
+    #     freq = data_pivot[instr_name_mag].columns.values
+    #     power = data_pivot[instr_name_mag].index.values
+    #     if freq_range:
+    #         freq_slice = self.find_slice(freq,freq_range)
+    #     else:
+    #         freq_slice = slice(0,len(freq))
+    #     # if power_range:
+    #     #     power_slice = self.find_slice(power,power_range)
+    #     # else:
+    #         # power_slice = slice(0,len(power))
+    #     self.freq = freq[freq_slice]
+    #     # self.power = power[power_slice]
+    #     self.mag = data_pivot[instr_name_mag].values[power_slice,freq_slice]
+    #     self.phase = data_pivot[instr_name_phase].values[power_slice,freq_slice]
+    #     self.cData = 10**(self.mag/20) * (np.cos(self.phase) + 1j*np.sin(self.phase))[power_slice,freq_slice]
 
-    def subtract_background(self, run_id, idx=-1):
-        conn = None
-        if self.exp: conn = self.exp.conn
-        dataset = qc.load_by_id(run_id, conn)
-        df = dataset.to_pandas_dataframe()
-        for key in df.keys():
-            if 'magnitude' in key: instr_name_mag = key
-            if 'phase' in key: instr_name_phase = key
-        for key in df.index.names:
-            if 'frequency' in key: instr_name_freq = key
-            if 'power' in key: instr_name_power = key
-        data_pivot = df.pivot_table(index=instr_name_power, columns=instr_name_freq)
+    def normalize_data_from_index(self, idx=-1, axis=0):
+        """
+        Normalize magnitude and phase with a line cut at the specified index. Default idx is -1, usually corresponding to the highest power trace.
+        """
+        self.normalize_data(self.name_mag, self.mag[:,idx], self.freq, axis=0)
+        self.normalize_data(self.name_phase, self.phase[:,idx], self.freq, axis=0)
+        self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
+        self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
-        if len(self.freq) != len(data_pivot[instr_name_mag].columns.values):
-            print('Background trace does not have the same dimension as the data')
-            return
-        mag_bg = data_pivot[instr_name_mag].values[idx]
-        phase_bg = data_pivot[instr_name_phase].values[idx]
-        self.cData = self.cData / ( 10**(mag_bg/20) * (np.cos(phase_bg) + 1j*np.sin(phase_bg)) )
+    # def subtract_background(self, run_id, idx=-1):
+    #     conn = None
+    #     if self.exp: conn = self.exp.conn
+    #     dataset = qc.load_by_id(run_id, conn)
+    #     df = dataset.to_pandas_dataframe()
+    #     for key in df.keys():
+    #         if 'magnitude' in key: instr_name_mag = key
+    #         if 'phase' in key: instr_name_phase = key
+    #     for key in df.index.names:
+    #         if 'frequency' in key: instr_name_freq = key
+    #         if 'power' in key: instr_name_power = key
+    #     data_pivot = df.pivot_table(index=instr_name_power, columns=instr_name_freq)
+
+    #     if len(self.freq) != len(data_pivot[instr_name_mag].columns.values):
+    #         print('Background trace does not have the same dimension as the data')
+    #         return
+    #     mag_bg = data_pivot[instr_name_mag].values[idx]
+    #     phase_bg = data_pivot[instr_name_phase].values[idx]
+    #     self.cData = self.cData / ( 10**(mag_bg/20) * (np.cos(phase_bg) + 1j*np.sin(phase_bg)) )
 
     # def plot_2D(self,freq_range=None,power_range=None,**kwargs):
     #     figs = []
