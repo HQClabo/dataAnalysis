@@ -139,7 +139,7 @@ class DataSet():
                     print(f"Warning: {name} is the second match found in independent_parameters. Returning {param['paramspec'].name} instead.")
         return param
 
-    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=False):
+    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
         """
         Normalize the data for the specified dependent parameters.
     
@@ -185,7 +185,7 @@ class DataSet():
             data_normalized = self.normalize_data_raw(y_vals, x_vals, data_bg[i], x_bg[i], axis[i], operation[i], interpolate[i])
             self.dependent_parameters[param_name+'_normalized']['values'] = data_normalized
     
-    def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtratct', interpolate=False):
+    def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
         """
         Normalize the given raw data by subtracting or dividing it with the background data.
 
