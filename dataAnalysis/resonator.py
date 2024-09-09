@@ -64,7 +64,7 @@ class DataSetVNA(DataSet):
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
     def normalize_data_vna(self, run_id_bg, axis=0, interpolate=True):
-        ds_bg = DataSetVNA(run_id_bg, exp=self.exp)
+        ds_bg = DataSetVNA(exp=self.exp, run_id=run_id_bg)
         bg_freq = ds_bg.independent_parameters[ds_bg.name_freq]['values']
         bg_mag = ds_bg.dependent_parameters[ds_bg.name_mag]['values']
         bg_phase = ds_bg.dependent_parameters[ds_bg.name_phase]['values']

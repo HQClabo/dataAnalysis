@@ -38,11 +38,12 @@ class DataSet():
             self.run_id = run_id
         else:
             self.run_id = exp.last_data_set().run_id
+        self.exp = exp
         self.conn = self.exp.conn
         self.station = station
         self.extract_data()
 
-    def extract_data(self, exp, run_id=None):
+    def extract_data(self, exp=None, run_id=None):
         """
         Extracts data from a dataset and organizes it into independent and dependent parameters.
         The parameters are callable using self.dependent_parameters and self.independent_parameters.
