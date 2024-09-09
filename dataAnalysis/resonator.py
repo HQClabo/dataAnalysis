@@ -8,17 +8,47 @@ import lmfit
 from .base import DataSet
 
 class DataSetVNA(DataSet):
-    def __init__(self, run_id=None, exp=None, station=None, freq_range=None):
-        super().__init__(run_id, exp, station)
+    """
+    A class representing a dataset from a Vector Network Analyzer (VNA) measurement. See DataSet class in base.py for more information.
+
+    Args:
+        exp (qcodes.dataset.experiment_container.Experiment, optional): The qcodes Experiment object.
+        run_id (str, optional): The ID of the measurement run. If not provided, the last recorded run ID in exp will be used.
+        station (str, optional): The name of the station. Defaults to None.
+        freq_range (tuple, optional): The frequency range to extract data from. Defaults to None.
+
+    Attributes:
+        name_mag (str): The name of the magnitude parameter.
+        name_phase (str): The name of the phase parameter.
+        name_freq (str): The name of the frequency parameter.
+        freq (ndarray): The frequency values.
+        mag (ndarray): The magnitude values.
+        phase (ndarray): The phase values.
+        cData (ndarray): The complex data calculated from magnitude and phase.
+
+    Methods:
+        _extract_data_vna_base(): Extracts data from a VNA measurement.
+        normalize_data_vna(run_id_bg, axis=0, interpolate=True): Normalizes the data using a background measurement.
+
+    Examples:
+        # Create a DataSetVNA object
+        ds = DataSetVNA(run_id='123', exp=exp)
+
+        # Extract data from the VNA measurement
+        ds._extract_data_vna_base()
+
+        # Normalize the data using a background measurement
+        ds.normalize_data_vna(run_id_bg='456', axis=0, interpolate=True)
+    """
+
+    def __init__(self, exp, run_id=None, station=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
         self._extract_data_vna_base()
 
     def _extract_data_vna_base(self):
         """
         Extracts data from a VNA (Vector Network Analyzer) measurement.
 
-        Args:
-            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
-            
         Returns:
             None
         """
@@ -45,8 +75,8 @@ class DataSetVNA(DataSet):
         self.cData_norm = 10**(mag_norm/20) * np.exp(1j*phase_norm)
     
 class FrequencyScanVNA(DataSetVNA):
-    def __init__(self, run_id=None, exp=None, station=None, freq_range=None):
-        super().__init__(run_id, exp, station)
+    def __init__(self, exp, run_id=None, station=None, freq_range=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
         self.extract_data_vna(freq_range)
 
     def analyze(self, freq_range=None, input_power=0, port_type='notch', normalized=False, do_plots=True):
@@ -135,8 +165,8 @@ class FrequencyScanVNA(DataSetVNA):
 
 
 class PowerScanVNA(DataSetVNA):
-    def __init__(self, run_id=None, exp=None, station=None, freq_range=None, power_range=None):
-        super().__init__(run_id, exp, station)
+    def __init__(self, exp, run_id=None, station=None, freq_range=None, power_range=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
         self.extract_data_vna(freq_range, power_range)
 
     def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, do_plots=True):
@@ -383,8 +413,8 @@ class PowerScanVNA(DataSetVNA):
 
 
 class BScanVNA(DataSetVNA):
-    def __init__(self, run_id, exp=None, station=None, field_param_name='mag', freq_range=None, field_range=None):
-        super().__init__(run_id, exp, station)
+    def __init__(self, exp, run_id=None, station=None, field_param_name='mag', freq_range=None, field_range=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
         self.extract_data_vna(field_param_name, freq_range, field_range)
 
     def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', do_plots=True):
