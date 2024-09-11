@@ -11,15 +11,15 @@ class DataSet():
     Represents a dataset and provides methods for extracting and manipulating the data.
 
     Args:
-        run_id (str, optional): The ID of the run. If not provided, the last recorded run ID in exp will be used.
-        exp (Experiment, optional): The Experiment object. If not provided, the last Experiment will be used.
-        station (Station, optional): The Station object. Defaults to None.
+        exp (qcodes.dataset.experiment_container.Experiment, optional): The qcodes Experiment object.
+        run_id (str, optional): The ID of the measurement run. If not provided, the last recorded run ID in exp will be used.
+        station (qcodes.station.Station, optional): The qcodes Station object. Defaults to None.
 
     Attributes:
+        exp (qcodes.dataset.experiment_container.Experiment): The Experiment object.
         run_id (str): The ID of the run.
-        exp (Experiment): The Experiment object.
         conn (Connection): The connection to the database.
-        station (Station): The Station object.
+        station (qcodes.station.Station): The qcodes Station object that contains metadata about the instruments. probably not even needed...
         dependent_parameters (dict): A dictionary containing the dependent parameters.
         independent_parameters (dict): A dictionary containing the independent parameters.
         dataset (DataSet): The dataset object.
@@ -28,29 +28,22 @@ class DataSet():
         extract_data(run_id=None, exp=None): Extracts data from a dataset and organizes it into independent and dependent parameters.
         copy_dependent_parameter(parameter_to_copy, copy_name): Copies a dependent parameter with a new name.
         copy_independent_parameter(parameter_to_copy, copy_name): Copies an independent parameter with a new name.
-        normalize_data(params_to_normalize, data_bg, x_bg, axis=0, operation='subtract', interpolate=False): Normalizes the data for the specified dependent parameters.
-        normalize_data_raw(data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtract', interpolate=False): Normalizes the given raw data by subtracting or dividing it with the background data.
+        normalize_data(params_to_normalize, data_bg, x_bg, axis=0, operation='subtract', interpolate=True): Normalizes the data for the specified dependent parameters.
+        normalize_data_raw(data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtract', interpolate=True): Normalizes the given raw data by subtracting or dividing it with the background data.
         plot_2D(params_to_plot=None, cmap='viridis', **kwargs): Plots 2D data based on the specified parameters.
     
     """
-    def __init__(self, run_id=None, exp=None, station=None):
+    def __init__(self, exp, run_id=None, station=None):
         if run_id:
             self.run_id = run_id
         else:
-            if exp:
-                self.run_id = exp.last_data_set().run_id
-            else:
-                print('Either run_id or exp must be provided.')
-                return
-        if exp:
-            self.exp = exp
-        else:
-            self.exp = qc.load_experiment(qc.load_by_id(self.run_id).exp_id)
+            self.run_id = exp.last_data_set().run_id
+        self.exp = exp
         self.conn = self.exp.conn
         self.station = station
         self.extract_data()
 
-    def extract_data(self, run_id=None, exp=None):
+    def extract_data(self, exp=None, run_id=None):
         """
         Extracts data from a dataset and organizes it into independent and dependent parameters.
         The parameters are callable using self.dependent_parameters and self.independent_parameters.
@@ -139,7 +132,7 @@ class DataSet():
                     print(f"Warning: {name} is the second match found in independent_parameters. Returning {param['paramspec'].name} instead.")
         return param
 
-    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=False):
+    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
         """
         Normalize the data for the specified dependent parameters.
     
@@ -185,7 +178,7 @@ class DataSet():
             data_normalized = self.normalize_data_raw(y_vals, x_vals, data_bg[i], x_bg[i], axis[i], operation[i], interpolate[i])
             self.dependent_parameters[param_name+'_normalized']['values'] = data_normalized
     
-    def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtratct', interpolate=False):
+    def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
         """
         Normalize the given raw data by subtracting or dividing it with the background data.
 
