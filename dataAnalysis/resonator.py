@@ -25,24 +25,30 @@ class DataSetVNA(DataSet):
         for key, param in self.dependent_parameters.items():
             if 'magnitude' in param['paramspec'].name: self.name_mag = key
             if 'phase' in param['paramspec'].name: self.name_phase = key
+                phase_unit = param['paramspec'].unit
         for key, param in self.independent_parameters.items():
             if 'frequency' in param['paramspec'].name: self.name_freq = key
+        
+        # covert phase to degrees 
+        if phase_unit == 'rad':
+            phase_scaling = 180/np.pi
+        elif phase_unit == '°':
+            phase_scaling = 1
+        else:
+            raise ValueError(f'The phase \"{phase_unit}\" was not recognized.')
 
         self.freq = self.independent_parameters[self.name_freq]['values']
         self.mag = self.dependent_parameters[self.name_mag]['values']
-        self.phase = self.dependent_parameters[self.name_phase]['values']
-        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+        self.phase = self.dependent_parameters[self.name_phase]['values'] * phase_scaling
+        self.cData = 10**(self.mag/20) * np.exp(1j*np.pi/180*self.phase)
 
     def normalize_data_vna(self, run_id_bg, axis=0, interpolate=False):
         ds_bg = DataSetVNA(run_id_bg, exp=self.exp)
-        bg_freq = ds_bg.independent_parameters[ds_bg.name_freq]['values']
-        bg_mag = ds_bg.dependent_parameters[ds_bg.name_mag]['values']
-        bg_phase = ds_bg.dependent_parameters[ds_bg.name_phase]['values']
-        self.normalize_data(self.name_mag, data_bg=bg_mag, x_bg=bg_freq, axis=axis, interpolate=interpolate)
-        self.normalize_data(self.name_phase, data_bg=bg_phase, x_bg=bg_freq, axis=axis, interpolate=interpolate)
+        self.normalize_data(self.name_mag, data_bg=ds_bg.mag, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
+        self.normalize_data(self.name_phase, data_bg=ds_bg.phase, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
         mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
         phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
-        self.cData_norm = 10**(mag_norm/20) * np.exp(1j*phase_norm)
+        self.cData_norm = 10**(mag_norm/20) * np.exp(1j*np.pi/180*phase_norm)
     
 class FrequencyScanVNA(DataSetVNA):
     def __init__(self, run_id=None, exp=None, station=None, freq_range=None):
@@ -77,8 +83,8 @@ class FrequencyScanVNA(DataSetVNA):
             port = circuit.reflection_port()
         else:
             print("This port type is not supported. Use 'notch' or 'reflection'.")
-        # cut and fit data
         
+        # cut and fit data
         port.add_data(self.freq,cData)
         if freq_range: port.cut_data(*freq_range)
         # port.autofit(fr_guess=center_freq[k])
