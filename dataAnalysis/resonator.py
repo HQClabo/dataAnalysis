@@ -62,24 +62,25 @@ class DataSetVNA(DataSet):
         
         # covert phase to degrees 
         if phase_unit == 'rad':
-            phase_scaling = 180/np.pi
+            pass
         elif phase_unit == '°':
-            phase_scaling = 1
+            self.dependent_parameters[self.name_phase]['values'] *= np.pi/180
         else:
             raise ValueError(f'The phase \"{phase_unit}\" was not recognized.')
 
+
         self.freq = self.independent_parameters[self.name_freq]['values']
         self.mag = self.dependent_parameters[self.name_mag]['values']
-        self.phase = self.dependent_parameters[self.name_phase]['values'] * phase_scaling
-        self.cData = 10**(self.mag/20) * np.exp(1j*np.pi/180*self.phase)
+        self.phase = self.dependent_parameters[self.name_phase]['values']
+        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
     def normalize_data_vna(self, run_id_bg, axis=0, interpolate=False):
-        ds_bg = DataSetVNA(run_id_bg, exp=self.exp)
+        ds_bg = DataSetVNA(self.exp, run_id_bg)
         self.normalize_data(self.name_mag, data_bg=ds_bg.mag, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
         self.normalize_data(self.name_phase, data_bg=ds_bg.phase, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
-        mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
-        phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
-        self.cData_norm = 10**(mag_norm/20) * np.exp(1j*np.pi/180*phase_norm)
+        self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
+        self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
     
 class FrequencyScanVNA(DataSetVNA):
     def __init__(self, exp, run_id=None, station=None, freq_range=None):
