@@ -7,6 +7,18 @@ from resonator_tools import circuit
 import lmfit
 from .base import DataSet
 
+def S21_resonator_notch(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay, phi0):
+        delta_r = fdrive - fr
+        S21 = (delta_r - 1j/2*(kappa_int + kappa_ext*(1-np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa_ext + kappa_int))
+        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+        return S21 * environment
+
+def S11_resonator_reflection(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay):
+    delta_r = fdrive - fr
+    S11 = (delta_r + 1j/2*(kappa_ext - kappa_int)) / (delta_r - 1j/2*(kappa_ext + kappa_int))
+    environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+    return S11 * environment
+
 class DataSetVNA(DataSet):
     """
     A class representing a dataset from a Vector Network Analyzer (VNA) measurement. See DataSet class in base.py for more information.
@@ -49,18 +61,23 @@ class DataSetVNA(DataSet):
         """
         Extracts data from a VNA (Vector Network Analyzer) measurement.
 
+        Generate attributes self.freq, self.mag, self.phase, self.cData from the paramspecs.
+
         Returns:
             None
         """
+        # Find param names for mag, phase and freq
         for key, param in self.dependent_parameters.items():
-            if 'magnitude' in param['paramspec'].name: self.name_mag = key
+            if 'magnitude' in param['paramspec'].name: 
+                self.name_mag = key
             if 'phase' in param['paramspec'].name: 
                 self.name_phase = key
                 phase_unit = param['paramspec'].unit
         for key, param in self.independent_parameters.items():
-            if 'frequency' in param['paramspec'].name: self.name_freq = key
+            if 'frequency' in param['paramspec'].name: 
+                self.name_freq = key
         
-        # covert phase to degrees 
+        # Convert phase to radians always
         if phase_unit == 'rad':
             pass
         elif phase_unit == '°':
@@ -68,13 +85,28 @@ class DataSetVNA(DataSet):
         else:
             raise ValueError(f'The phase \"{phase_unit}\" was not recognized.')
 
-
+        # Generate attributes
         self.freq = self.independent_parameters[self.name_freq]['values']
         self.mag = self.dependent_parameters[self.name_mag]['values']
         self.phase = self.dependent_parameters[self.name_phase]['values']
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
-    def normalize_data_vna(self, run_id_bg, axis=0, interpolate=False):
+    def normalize_data_vna(self, run_id_bg: int, axis:int=0, interpolate=True):
+        """
+        Normalize the measurement data using as background the data of the provided measurement run.
+
+        Note that this function assumes that the background run id belongs to the same experiment of the data run id.
+
+        Args: 
+            run_id_bg: Id of the background measurement.
+            axis (optional, default 0): Axis along which to normalize.
+            interpolate (optional, default True): Boolean flag to interpolate the background trace if the number of points
+                do not match with the measurement data.
+
+        Returns:
+            None
+        
+        """
         ds_bg = DataSetVNA(self.exp, run_id_bg)
         self.normalize_data(self.name_mag, data_bg=ds_bg.mag, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
         self.normalize_data(self.name_phase, data_bg=ds_bg.phase, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
@@ -83,9 +115,37 @@ class DataSetVNA(DataSet):
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
     
 class FrequencyScanVNA(DataSetVNA):
-    def __init__(self, exp, run_id=None, station=None, freq_range=None):
+    """
+    Class for 1D VNA frequency sweeps.
+
+    Args:
+        exp: Experiment.
+        run_id (optional): Run ID of the measurement. If not provided, the last measurement run is used.
+        station (optional): Station. 
+        freq_range (optional): Tuple with the min and max frequencies of the range to use.
+    """
+    def __init__(self, exp, run_id=None, station=None, freq_range:tuple=None):
+        # This will already extract self.freq, self.mag, self.phase
         super().__init__(exp=exp, run_id=run_id, station=station)
+        # Cut data with provided frequency range
         self.extract_data_vna(freq_range)
+
+    def extract_data_vna(self, freq_range:tuple=None):
+        """
+        Extracts data from a VNA measurement.
+
+        Args:
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+            
+        Returns:
+            None
+        """
+        if freq_range:
+            freq_slice = self.find_slice(self.freq,freq_range)
+            self.freq = self.freq[freq_slice]
+            self.mag = self.mag[freq_slice]
+            self.phase = self.phase[freq_slice]
+            self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
     def analyze(self, freq_range=None, input_power=0, port_type='notch', normalized=False, do_plots=True):
         """
@@ -108,22 +168,24 @@ class FrequencyScanVNA(DataSetVNA):
         else:
             cData = self.cData
             
-        # define port type
+        # Define port type to use
         if port_type == 'notch':
             port = circuit.notch_port()
         elif port_type == 'reflection':
             port = circuit.reflection_port()
         else:
-            print("This port type is not supported. Use 'notch' or 'reflection'.")
+            print("This port type is not supported. Supported types are 'notch' and 'reflection'.")
         
-        # cut and fit data
+        # Cut and fit data
         port.add_data(self.freq,cData)
-        if freq_range: port.cut_data(*freq_range)
+        if freq_range: 
+            port.cut_data(*freq_range)
         # port.autofit(fr_guess=center_freq[k])
         port.autofit()
         if do_plots == True:
             port.plotall()
-        # add fitting results to the dictionary
+
+        # Add fitting results to the dictionary
         if port_type == 'notch':
             fit_report["Qi"] = port.fitresults["Qi_dia_corr"]
             fit_report["Qi_err"] = port.fitresults["Qi_dia_corr_err"]
@@ -142,40 +204,45 @@ class FrequencyScanVNA(DataSetVNA):
         self.fit_report = fit_report
         self.port = port
 
-    def extract_data_vna(self, freq_range=None):
-        """
-        Extracts data from a VNA (Vector Network Analyzer) measurement.
-
-        Args:
-            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
-            
-        Returns:
-            None
-        """
-        if freq_range:
-            freq_slice = self.find_slice(self.freq,freq_range)
-            self.freq = self.freq[freq_slice]
-            self.mag = self.mag[freq_slice]
-            self.phase = self.phase[freq_slice]
-            self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
-
-    def S21_resonator_notch(self, fdrive, fr, kappa_int, kappa_ext, a, alpha, delay, phi0):
-        delta_r = fdrive - fr
-        S21 = (delta_r - 1j/2*(kappa_int + kappa_ext*(1-np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa_ext + kappa_int))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S21 * environment
-
-    def S11_resonator_reflection(self, fdrive, fr, kappa_int, kappa_ext, a, alpha, delay):
-        delta_r = fdrive - fr
-        S11 = (delta_r + 1j/2*(kappa_ext - kappa_int)) / (delta_r - 1j/2*(kappa_ext + kappa_int))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S11 * environment
-
 
 class PowerScanVNA(DataSetVNA):
     def __init__(self, exp, run_id=None, station=None, freq_range=None, power_range=None):
         super().__init__(exp=exp, run_id=run_id, station=station)
         self.extract_data_vna(freq_range, power_range)
+
+    def extract_data_vna(self, freq_range=None, power_range=None):
+        """
+        Extracts data from a VNA measurement.
+
+        Args:
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+            power_range (tuple, optional): Power range to extract data from. Defaults to None.
+            
+        Returns:
+            None
+        """
+        for key, param in self.independent_parameters.items():
+            if 'power' in param['paramspec'].name: 
+                self.name_power = key
+        self.power = self.independent_parameters[self.name_power]['values']
+
+        # Select only the provided frequency and power range
+        freq_slice = slice(0,None)
+        power_slice = slice(0,None)
+        if freq_range: 
+            freq_slice = self.find_slice(self.freq, freq_range)
+        if power_range: 
+            power_slice = self.find_slice(self.power, power_range)
+        self.freq = self.freq[freq_slice]
+        self.power = self.power[power_slice]
+        if self.name_freq == 'x':
+            slice_2d = (power_slice, freq_slice)
+        else:
+            slice_2d = (freq_slice, power_slice)
+        self.mag = self.mag[slice_2d]
+        self.phase = self.phase[slice_2d]
+        self.cData = self.cData[slice_2d]
+
 
     def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, do_plots=True):
         """
@@ -210,27 +277,30 @@ class PowerScanVNA(DataSetVNA):
         else:
             cData = self.cData
 
+        # Cycle for all powers. k is the power index
         for k,power in enumerate(self.power):
             if power_range:
                 if (power < power_range[0]) or (power > power_range[1]):
                     continue
             
-            # define port type
+            # Define port type
             if port_type == 'notch':
                 port = circuit.notch_port()
             elif port_type == 'reflection':
                 port = circuit.reflection_port()
             else:
-                print("This port type is not supported. Use 'notch' or 'reflection'.")
-            # cut and fit data
+                print("This port type is not supported. Supported types are 'notch' and 'reflection'.")
             
+            # Cut data
             port.add_data(self.freq,cData[:,k])
-            if freq_range: port.cut_data(*freq_range)
+            if freq_range: 
+                port.cut_data(*freq_range)
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
             if do_plots == True:
                 port.plotall()
-            # add fitting results to the dictionary
+
+            # Add fitting results to the dictionary
             if port_type == 'notch':
                 fit_report["Qi"][k] = port.fitresults["Qi_dia_corr"]
                 fit_report["Qi_err"][k] = port.fitresults["Qi_dia_corr_err"]
@@ -246,6 +316,7 @@ class PowerScanVNA(DataSetVNA):
             fit_report["Nph"][k] = port.get_photons_in_resonator(power - attenuation,unit='dBm')
             fit_report["fr"][k] = port.fitresults["fr"]
             fit_report['fitresults'][k] = port.fitresults
+
         self.fit_report = fit_report
         self.port = port
 
@@ -254,23 +325,21 @@ class PowerScanVNA(DataSetVNA):
         Fit a resonator reflection data that has previously been added to the port
         to a model with a Lorentzian resonance and a linear background.
 
-        Parameters
-        ----------
-        fcenter : float, optional
-            Center frequency of the resonance. If None, the function will try to guess
-            the center frequency from the data.
-        fspan : float, optional
-            Frequency span around the center frequency to fit to. If None, the entire frequency range will be used.
-        guesses : dict, optional
-            Initial guesses for the fit parameters. If None, the function will try to guess
-            the parameters from the data.
-        do_plot : bool, optional
-            Whether to plot the fit results.
+        Args:
+            fcenter : float, optional
+                Center frequency of the resonance. If None, the function will try to guess
+                the center frequency from the data.
+            fspan : float, optional
+                Frequency span around the center frequency to fit to. If None, the entire frequency range will be used.
+            guesses : dict, optional
+                Initial guesses for the fit parameters. If None, the function will try to guess
+                the parameters from the data.
+            do_plot : bool, optional
+                Whether to plot the fit results.
 
-        Returns
-        -------
-        result : lmfit.model.ModelResult
-            The result of the fit, including the optimal values for the fit parameters.
+        Returns:
+            result : lmfit.model.ModelResult
+                The result of the fit, including the optimal values for the fit parameters.
         """
         if normalized:
             cData = self.cData_norm
@@ -278,28 +347,31 @@ class PowerScanVNA(DataSetVNA):
             cData = self.cData
 
         results = []
+
+        # Cycle over the powers. k is the power index
         for k,power in enumerate(self.power):
             if power_range:
                 if (power < power_range[0]) or (power > power_range[1]):
                     continue
-            # define port type
+
+            # Define port type
             if port_type == 'notch':
                 port = circuit.notch_port()
-                model_func = self.S21_resonator_notch
+                model_func = S21_resonator_notch
             elif port_type == 'reflection':
                 port = circuit.reflection_port()
-                model_func = self.S11_resonator_reflection
+                model_func = S11_resonator_reflection
             else:
-                print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (t.b.d.)")
-            # cut and fit data
+                print("This port type is not supported. Supported types are 'notch' or 'reflection'")
             
+            # Cut and provide data
             port.add_data(self.freq,cData[:,k])
             if freq_range:
                 port.cut_data(*freq_range)
-            # port.autofit(fr_guess=center_freq[k])
-    
             fdrive = port.f_data
             zdata = port.z_data_raw
+
+            # Obtain guesses with resonator_tools
             delay, a, alpha, fr, Ql, A2, frcal = port.do_calibration(fdrive, zdata)
 
             initial_guesses = {'fr': frcal,
@@ -311,8 +383,8 @@ class PowerScanVNA(DataSetVNA):
                                'phi0': 0}
             for guess in guesses.keys(): 
                 initial_guesses[guess] = guesses[guess]
-
-            if print_guesses: print(initial_guesses)
+            if print_guesses: 
+                print(initial_guesses)
     
             params=lmfit.Parameters()
             params.add('fr', value=initial_guesses['fr'], vary=True)
@@ -323,9 +395,11 @@ class PowerScanVNA(DataSetVNA):
             params.add('delay', value=initial_guesses['delay'], vary=True)
             if port_type == 'notch': params.add('phi0', value=initial_guesses['phi0'], vary=True)
     
+            # Perform the fit
             model = lmfit.Model(model_func, independent_vars=['fdrive'])
             result = model.fit(zdata, params, fdrive=fdrive)
     
+            # Plot
             if do_plots:
                 fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
                 fig.set_size_inches(18/2.54, 5/2.54)
@@ -348,49 +422,8 @@ class PowerScanVNA(DataSetVNA):
             self.fit_report_lmfit = results
             self.port = port
 
-    def S21_resonator_notch(self, fdrive, fr, kappa_int, kappa_ext, a, alpha, delay, phi0):
-        delta_r = fdrive - fr
-        S21 = (delta_r - 1j/2*(kappa_int + kappa_ext*(1-np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa_ext + kappa_int))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S21 * environment
 
-    def S11_resonator_reflection(self, fdrive, fr, kappa_int, kappa_ext, a, alpha, delay):
-        delta_r = fdrive - fr
-        S11 = (delta_r + 1j/2*(kappa_ext - kappa_int)) / (delta_r - 1j/2*(kappa_ext + kappa_int))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S11 * environment
-
-    def extract_data_vna(self, freq_range=None, power_range=None):
-        """
-        Extracts data from a VNA (Vector Network Analyzer) measurement.
-
-        Args:
-            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
-            power_range (tuple, optional): Power range to extract data from. Defaults to None.
-            
-        Returns:
-            None
-        """
-        for key, param in self.independent_parameters.items():
-            if 'power' in param['paramspec'].name: 
-                self.name_power = key
-        self.power = self.independent_parameters[self.name_power]['values']
-
-        freq_slice = slice(0,None)
-        power_slice = slice(0,None)
-        if freq_range: freq_slice = self.find_slice(self.freq, freq_range)
-        if power_range: power_slice = self.find_slice(self.power, power_range)
-        
-        self.freq = self.freq[freq_slice]
-        self.power = self.power[power_slice]
-        if self.name_freq == 'x':
-            slice_2d = (power_slice, freq_slice)
-        else:
-            slice_2d = (freq_slice, power_slice)
-        self.mag = self.mag[slice_2d]
-        self.phase = self.phase[slice_2d]
-        self.cData = self.cData[slice_2d]
-
+    
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
         Normalize magnitude and phase with a line cut at the specified index. Default idx is -1, usually corresponding to the highest power trace.
