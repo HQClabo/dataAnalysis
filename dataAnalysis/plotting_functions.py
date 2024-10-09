@@ -8,6 +8,7 @@ A module that contains general functions for data manipulation and plotting
 """
 
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from scipy.ndimage import uniform_filter1d
@@ -280,6 +281,43 @@ def set_axis_labels(ax,title='',xlabel='',ylabel='',fontsize=14,ticksize=12):
 def set_colorbar_labels(cb,clabel='',fontsize=14,labelsize=12):
     cb.set_label(clabel,fontsize=fontsize)
     cb.ax.tick_params(labelsize=labelsize)
+
+
+#%% functions for saving plot data
+def save_data_to_file(*data_columns: np.array, header: str='', column_headers: list=[], filename: str='data.csv', filepath: str='', delimiter: str=',', encoding: str='utf8'):
+    """
+    Save data columns into a text file.
+    Parameters:
+    - data_columns: Variable number of numpy arrays representing the data columns. The arrays will be flattened and stacked horizontally.
+    - header: Optional string to be added as a header in the CSV file.
+    - column_headers: Optional list of strings representing the column headers.
+    - filename: Optional string representing the name of the output CSV file. If not provided, a default name will be used.
+    - filepath: Optional string representing the path where the output CSV file will be saved. If not provided, the current working directory will be used.
+    - delimiter: Optional string representing the delimiter used in the CSV file. Default is ','.
+    Raises:
+    - ValueError: If the data columns have different dimensions.
+    Returns:
+    - None
+    """
+    # save data in csv file
+    # check if all data columns have the same dimensions
+    data_shapes = [data.shape for data in data_columns]
+    same_dimensions = all(shape == data_shapes[0] for shape in data_shapes)
+    if not same_dimensions:
+        raise ValueError('All data columns must have the same dimensions')
+    
+    # Stack arrays in sequence horizontally (column wise)
+    if not column_headers:
+        column_headers = ['Column {}'.format(i+1) for i in range(len(data_columns))]
+    elif len(column_headers) != len(data_columns):
+            raise ValueError('Number of column headers must match the number of data columns')
+
+    array_save = np.column_stack([data.flatten() for data in data_columns])
+    if header:
+        header += '\n'
+    header += delimiter.join(column_headers)
+    np.savetxt(os.path.join(filepath, filename), array_save, delimiter=delimiter, header=header, encoding=encoding)
+    print('Data saved to file: {}'.format(os.path.join(filepath, filename)))
 
 
 #%% old functions
