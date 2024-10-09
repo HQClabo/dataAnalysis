@@ -458,6 +458,42 @@ class BScanVNA(DataSetVNA):
         super().__init__(exp=exp, run_id=run_id, station=station)
         self.extract_data_vna(field_param_name, freq_range, field_range)
 
+    def extract_data_vna(self, field_param_name, freq_range=None, field_range=None):
+        """
+        Extracts data from a VNA (Vector Network Analyzer) measurement.
+
+        Args:
+            field_param_name (string, optional): String contained in the magnetic field parameter name. Defaults to "mag".
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+            field_range (tuple, optional): Magnetic field range to extract data from. Defaults to None.
+            
+        Returns:
+            None
+        """
+        self.name_field = None
+        for key, param in self.independent_parameters.items():
+            if field_param_name in param['paramspec'].name: self.name_field = key
+        if not self.name_field: raise ValueError(f"No parameter found containing \"{field_param_name}\"")
+        self.field = self.independent_parameters[self.name_field]['values']
+
+        freq_slice = slice(0,None)
+        field_slice = slice(0,None)
+        if freq_range: freq_slice = self.find_slice(self.freq, freq_range)
+        if field_range: field_slice = self.find_slice(self.field, field_range)
+        
+        self.freq = self.freq[freq_slice]
+        self.field = self.field[field_slice]
+        if self.name_freq == 'x':
+            slice_2d = (field_slice, freq_slice)
+        else:
+            slice_2d = (freq_slice, field_slice)
+        self.mag = self.mag[slice_2d]
+        self.phase = self.phase[slice_2d]
+        self.cData = self.cData[slice_2d]
+
+    def plot_normalized(self):
+        self.plot_2D(["param_0_normalized", "param_1_normalized"])
+
     def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', do_plots=True):
 
         n_powers = len(self.power)
@@ -509,38 +545,6 @@ class BScanVNA(DataSetVNA):
             fit_report['fitresults'][k] = port.fitresults
         self.fit_report = fit_report
 
-    def extract_data_vna(self, field_param_name, freq_range=None, field_range=None):
-        """
-        Extracts data from a VNA (Vector Network Analyzer) measurement.
-
-        Args:
-            field_param_name (string, optional): String contained in the magnetic field parameter name. Defaults to "mag".
-            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
-            field_range (tuple, optional): Magnetic field range to extract data from. Defaults to None.
-            
-        Returns:
-            None
-        """
-        self.name_field = None
-        for key, param in self.independent_parameters.items():
-            if field_param_name in param['paramspec'].name: self.name_field = key
-        if not self.name_field: raise ValueError(f"No parameter found containing \"{field_param_name}\"")
-        self.field = self.independent_parameters[self.name_field]['values']
-
-        freq_slice = slice(0,None)
-        field_slice = slice(0,None)
-        if freq_range: freq_slice = self.find_slice(self.freq, freq_range)
-        if field_range: field_slice = self.find_slice(self.field, field_range)
-        
-        self.freq = self.freq[freq_slice]
-        self.field = self.field[field_slice]
-        if self.name_freq == 'x':
-            slice_2d = (field_slice, freq_slice)
-        else:
-            slice_2d = (freq_slice, field_slice)
-        self.mag = self.mag[slice_2d]
-        self.phase = self.phase[slice_2d]
-        self.cData = self.cData[slice_2d]
 
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
