@@ -113,6 +113,13 @@ class DataSetVNA(DataSet):
         self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def plot_1D_normalized(self):
+        return self.plot_1D([self.name_mag+'_normalized', self.name_phase+'_normalized'])
+
+    def plot_2D_normalized(self):
+         return self.plot_2D([self.name_mag+'_normalized', self.name_phase+'_normalized'])
+
     
 class FrequencyScanVNA(DataSetVNA):
     """
@@ -490,9 +497,6 @@ class BScanVNA(DataSetVNA):
         self.mag = self.mag[slice_2d]
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
-
-    def plot_normalized(self):
-        self.plot_2D(["param_0_normalized", "param_1_normalized"])
 
     def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', do_plots=True):
 
