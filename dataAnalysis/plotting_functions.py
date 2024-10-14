@@ -282,6 +282,22 @@ def set_colorbar_labels(cb,clabel='',fontsize=14,labelsize=12):
     cb.set_label(clabel,fontsize=fontsize)
     cb.ax.tick_params(labelsize=labelsize)
 
+def set_all_fontsize_in_figure(fig, fontsize):
+    """
+    For each text object of a figure fig, set the font size to fontsize.
+
+    Args:
+        fig: Handler of the figure.
+        fontsize: Fontsize to be set.
+
+    Returns: None
+    """
+    def match(artist):
+        return artist.__module__ == "matplotlib.text"
+
+    for textobj in fig.findobj(match=match):
+        textobj.set_fontsize(fontsize)
+
 
 #%% functions for saving plot data
 def save_data_to_file(*data_columns: np.array, header: str='', column_headers: list=[], filename: str='data.csv', filepath: str='', delimiter: str=',', encoding: str='utf8'):
