@@ -17,14 +17,14 @@ class MultiSetFit:
     All arguments required by the model_function must be present in the independent_vars, shared_params, or individual_params.
     Args:
         model_function (function): The model function to fit to the datasets.
-        dataset_idxs (list): A list of strings describing the dataset indices. The length must match the number of datasets.
+        suffixes (list): A list of strings denoting the dataset suffixes. The length must match the number of datasets.
         independent_vars (list): A list of independent variable names.
         shared_params (list, optional): A list of strings describing the  shared parameter names. Defaults to None.
         individual_params (list, optional): A list of strings describing the individual parameter names. The indices in dataset_idxs
                                             will be added to create an individual parameter for each dataset. Defaults to None.
     Attributes:
         n_sets (int): The number of datasets.
-        dataset_idxs (list): A list of dataset indices.
+        suffixes (list): A list of the dataset suffixes.
         single_model (function): The model function.
         independent_vars (list): A list of independent variable names.
         shared_params (list): A list of shared parameter names.
@@ -42,14 +42,15 @@ class MultiSetFit:
         ValueError: If the individual parameter arrays do not match the data shape.
 
     Example Usage:
-        def linear_model(x, a, b):
-            return a*x + b
+        def linear_model_2d(x, y, a, b):
+            return a*x + b*y
         data = [np.array([1, 2, 3]), np.array([2, 3, 4])]
-        x = np.array([1, 2, 3])
+        x = [np.array([1, 2, 3])]*2
+        y = [np.array([2, 3, 4]), np.array([3, 4, 5])]
 
-        multi_set_fit = MultiSetFit(linear_model, ['1', '2'], independent_vars=['x'], shared_params=['a'], individual_params=['b'])
+        multi_set_fit = MultiSetFit(linear_model_2d, ['one', 'two'], independent_vars=['x'], shared_params=['a'], individual_params=['b'])
         multi_model = multi_set_fit.generate_multi_model_function(print_string=True)
-        dataset_idx, combined_data, combined_x = multi_set_fit.combine_datasets(data, [x, x])
+        dataset_idx, combined_data, combined_x, combined_y = multi_set_fit.combine_datasets(data, x, y)
 
         # define the lmfit parameters
         params = lmfit.Parameters()
@@ -58,17 +59,19 @@ class MultiSetFit:
         params.add('b_2', value=1, vary=True)
 
         # it is important to set the dataset_idx as an independent variable here
-        model = lmfit.Model(multi_model, independent_vars=['dataset_idx', 'x'])
-        result = model.fit(combined_data, params, dataset_idx=dataset_idx, x=combined_x)
+        model = lmfit.Model(multi_model, independent_vars=['dataset_idx', 'x', 'y'])
+        result = model.fit(combined_data, params, dataset_idx=dataset_idx, x=combined_x, y=combined_x)
         
     """
 
-    def __init__(self, model_function, dataset_idxs: list, independent_vars: list, shared_params: list = None, individual_params: list = None):
+    def __init__(self, model_function, suffixes: list, independent_vars: list, shared_params: list = None, individual_params: list = None):
         # Define the model functions
-        self.n_sets = len(dataset_idxs)
-        self.dataset_idxs = dataset_idxs
-        self._suffixes = ['_' + dataset_idx for dataset_idx in dataset_idxs]
+        self.n_sets = len(suffixes)
+        self.suffixes = suffixes
+        self._suffixes = ['_' + dataset_idx for dataset_idx in suffixes]
         self.single_model = model_function
+        # Add the single model function to the global namespace to be able to call it from the multi-set model function
+        globals()[model_function.__name__] = model_function
         self.independent_vars = independent_vars
         self.shared_params = shared_params
         self.individual_params = individual_params
@@ -101,7 +104,7 @@ class MultiSetFit:
         ##### define the function string #####
 
         # define the function signature
-        func_name = self.single_model.__name__
+        func_name = 'multi_' + self.single_model.__name__
         func_txt = f'def {func_name}(dataset_idx, {", ".join(self.independent_vars)}'
         if self.shared_params:
             func_txt += ', ' + ', '.join([param for param in self.shared_params])
@@ -117,11 +120,11 @@ class MultiSetFit:
             for i, param in enumerate(self.individual_params):
                 func_txt += '    {param} = np.array({indiv_params})\n'.format(
                     param = param,
-                    indiv_params = ' + '.join([f'[{param}_{idx}]*counts[uniques=={idx}][0]' for idx in self.dataset_idxs]))
+                    indiv_params = ' + '.join([f'[{param + suffix}]*counts[uniques=={idx}][0]' for idx, suffix in enumerate(self._suffixes)]))
 
         # call and return the single model function for the comined datasets
         arg_str = ', '.join([f'{arg}={arg}' for arg in self.arg_names])
-        call_single_model_func = f'{func_name}({arg_str})'
+        call_single_model_func = f'{self.single_model.__name__}({arg_str})'
         func_txt += '\n    return ' + call_single_model_func
 
 
@@ -130,7 +133,7 @@ class MultiSetFit:
             print(func_txt)
 
         # compile and return the function
-        func_code = compile(func_txt, "<string>", "exec")
+        func_code = compile(func_txt, "dataAnalysis.multi_set_fit", "exec")
         code = [entry for entry in func_code.co_consts if isinstance(entry, CodeType)][0]
         func = FunctionType(code, globals(), func_name, argdefs=func_code.co_consts[-1])
         return func
@@ -165,9 +168,8 @@ class MultiSetFit:
         for i, data in enumerate(datasets):
             data_combo = np.append(data_combo, data.flatten())
             # dataset_nr = np.append(dataset_nr,np.repeat(i, len(data_single_set.flatten())))
-            dataset_idx = np.append(dataset_idx,np.repeat(self.dataset_idxs[i], len(data.flatten())))
+            dataset_idx = np.append(dataset_idx,np.repeat(i, len(data.flatten())))
         
-        # for i, param_set in enumerate(individual_params):
             for j, param_set in enumerate(individual_params):
                 # print(param)
                 param = param_set[i]
