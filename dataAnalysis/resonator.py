@@ -91,25 +91,35 @@ class DataSetVNA(DataSet):
         self.phase = self.dependent_parameters[self.name_phase]['values']
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
-    def normalize_data_vna(self, run_id_bg: int, axis:int=0, interpolate=True):
+    def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True):
         """
-        Normalize the measurement data using as background the data of the provided measurement run.
+        Normalize the measurement data using a background measurement run or provided background data.
+        This function normalizes the measurement data using either a 1D background measurement run identified by `run_id_bg` 
+        or provided background data (`cData_bg` and `freq_bg`). It assumes that the background run ID belongs to the same 
+        experiment as the data run ID.
 
-        Note that this function assumes that the background run id belongs to the same experiment of the data run id.
-
-        Args: 
-            run_id_bg: Id of the background measurement.
-            axis (optional, default 0): Axis along which to normalize.
-            interpolate (optional, default True): Boolean flag to interpolate the background trace if the number of points
-                do not match with the measurement data.
-
-        Returns:
-            None
-        
+        Args:
+            run_id_bg (int, optional): ID of the background measurement run. Default is None.
+            cData_bg (np.array, optional): Complex background data. Default is None.
+            freq_bg (np.array, optional): Frequency data corresponding to the background data. Default is None.
+            axis (int, optional): Axis along which to normalize. Default is 0.
+            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match 
+                                          with the measurement data. Default is True.
+        Raises:
+            ValueError: If neither `run_id_bg` nor both `cData_bg` and `freq_bg` are provided.
         """
-        ds_bg = DataSetVNA(self.exp, run_id_bg)
-        self.normalize_data(self.name_mag, data_bg=ds_bg.mag, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
-        self.normalize_data(self.name_phase, data_bg=ds_bg.phase, x_bg=ds_bg.freq, axis=axis, interpolate=interpolate)
+        if run_id_bg is not None:
+            ds_bg = DataSetVNA(self.exp, run_id_bg)
+            freq_bg = ds_bg.freq
+            mag_bg = ds_bg.mag
+            phase_bg = ds_bg.phase
+        elif cData_bg is not None and freq_bg is not None:
+            mag_bg = 20*np.log10(abs(cData_bg))
+            phase_bg = np.angle(cData_bg)
+        else:
+            raise ValueError("Either run_id_bg or cData_bg and freq_bg must be provided.")
+        self.normalize_data(self.name_mag, data_bg=mag_bg, x_bg=freq_bg, axis=axis, interpolate=interpolate)
+        self.normalize_data(self.name_phase, data_bg=phase_bg, x_bg=freq_bg, axis=axis, interpolate=interpolate)
         self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
