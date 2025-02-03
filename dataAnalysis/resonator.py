@@ -285,8 +285,11 @@ class PowerScanVNA(DataSetVNA):
             "Ql" : np.array([np.nan]*n_powers),
             "Ql_err" : np.array([np.nan]*n_powers),
             "Nph" : np.array([np.nan]*n_powers),
+            "single_photon_W" : np.array([np.nan]*n_powers),
+            "single_photon_dBm" : np.array([np.nan]*n_powers),
             "fr" : np.array([np.nan]*n_powers),
-            'fitresults': [np.nan]*n_powers,
+            'fitresults': [None]*n_powers,
+            'port': [None]*n_powers,
             }
 
         if normalized:
@@ -331,11 +334,14 @@ class PowerScanVNA(DataSetVNA):
             fit_report["Ql"][k] = port.fitresults["Ql"]
             fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
             fit_report["Nph"][k] = port.get_photons_in_resonator(power - attenuation,unit='dBm')
+            fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
+            fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
             fit_report["fr"][k] = port.fitresults["fr"]
             fit_report['fitresults'][k] = port.fitresults
+            fit_report['port'][k] = port
 
         self.fit_report = fit_report
-        self.port = port
+        # self.port = port
 
     def analyze_lmfit(self, freq_range=None, power_range=None, guesses: dict = {}, attenuation=0, port_type='notch', normalized=False, do_plots=True, print_guesses=False):
         """
@@ -438,6 +444,15 @@ class PowerScanVNA(DataSetVNA):
 
             self.fit_report_lmfit = results
             self.port = port
+    
+    def get_single_photon_limit(self):
+        """
+        Calculate the single photon limit of the resonator.
+
+        Returns:
+            float: The single photon limit.
+        """
+        return self.fit_report['Nph'][0]
 
 
     
@@ -452,6 +467,25 @@ class PowerScanVNA(DataSetVNA):
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
     def plot_QvsP(self,label='',log_y=True,**kwargs):
+        """
+        Plots the quality factors (Qi, Qc, Ql) versus photon number (Nph) with error bars.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
         fit = self.fit_report
         fig, ax = plt.subplots(1)
         if log_y:
