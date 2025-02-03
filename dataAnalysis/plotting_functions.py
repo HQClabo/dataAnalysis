@@ -218,16 +218,17 @@ def plot2D_power_VS_freq(out,freq,cData,power,p_in=0,label='0'):
 #%% functions for manipulating plots
 
 def format_plot(ax,
-                title='',
                 xlabel='',
                 ylabel='',
-                clabel='',
+                title='',
+                subtitle='',
                 x_lim=None,
                 y_lim=None,
                 res=300,
                 fontsize=None,
                 grid=False,
                 title_kw={},
+                subtitle_kw={},
                 xlabel_kw={},
                 ylabel_kw={},
                 tick_kw={},
@@ -236,6 +237,7 @@ def format_plot(ax,
     fig = ax.get_figure()
     fig.dpi = res
     if title: fig.suptitle(title,fontsize=fontsize,**title_kw)
+    if subtitle: ax.set_title(subtitle,fontsize=fontsize, **subtitle_kw)
     if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize,**xlabel_kw)
     if ylabel: ax.set_ylabel(ylabel,fontsize=fontsize,**ylabel_kw)
     ax.tick_params(**tick_kw)
