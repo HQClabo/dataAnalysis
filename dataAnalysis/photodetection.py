@@ -12,7 +12,7 @@ class EfficiencyFit(DataSet):
         self.power = self.get_independent_parameter_by_name('power')['values']
         self.detuning = self.get_independent_parameter_by_name('detuning')['values']
 
-    def fit_photocurrent_efficiency(self, freq, attenuation, power_range=None):
+    def fit_photocurrent_efficiency(self, freq, attenuation, power_range=None, cut_idx=None):
         self.freq = freq
         self.attenuation = attenuation
         self.power_range = power_range
@@ -21,33 +21,24 @@ class EfficiencyFit(DataSet):
             self.fit_idxs = (self.power_watts > power_range[0]) & (self.power_watts < power_range[1])
         else:
             self.fit_idxs = [True]*len(self.power)
+
+        current_to_fit = self.Id[self.fit_idxs]
+        if cut_idx is not None:
+            current_to_fit = current_to_fit[:,cut_idx]
         
         e = 1.602*1e-19 # electron charge
         h = 6.626*1e-34 # Planck const.
         
-        results_lin_low = linregress(self.power_watts[self.fit_idxs], self.Id[self.fit_idxs])
+        results_lin_low = linregress(self.power_watts[self.fit_idxs], current_to_fit)
         slope_fit_low = results_lin_low.slope
-        self.efficiency = np.round(slope_fit_low*(h*freq)/e*100, 2)
+        self.efficiency = slope_fit_low*(h*freq)/e*100
         return self.efficiency
 
     def fit_photocurrent_efficiency_vs_detuning(self, freq, attenuation, power_range=None):
-        self.freq = freq
-        self.attenuation = attenuation
-        if power_range is not None:
-            self.power_watts = 10**((self.power-attenuation)/10)/1000
-            self.fit_idxs = (self.power_watts > power_range[0]) & (self.power_watts < power_range[1])
-        else:
-            self.fit_idxs = [True]*len(self.power)
-        
-        e = 1.602*1e-19 # electron charge
-        h = 6.626*1e-34 # Planck const.
-        
         efficiency = []
-        for Id_ in self.Id.T:
-            results_lin_low = linregress(self.power_watts[self.fit_idxs], Id_[self.fit_idxs])
-            slope_fit_low = results_lin_low.slope
-            effi_low = np.round(slope_fit_low*(h*freq)/e*100, 2)
-            efficiency.append(effi_low)
+        for i in range(self.Id.shape[1]):
+            self.fit_photocurrent_efficiency(freq, attenuation, power_range, cut_idx=i)
+            efficiency.append(self.efficiency)
         self.efficiency = np.array(efficiency)
         return self.efficiency
     
