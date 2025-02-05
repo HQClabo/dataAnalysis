@@ -132,6 +132,38 @@ class DataSet():
                     print(f"Warning: {name} is the second match found in independent_parameters. Returning {param['paramspec'].name} instead.")
         return param
 
+    def normalize_data_mag_phase(self, mag_param_name, phase_param_name, cData_bg, x_bg, axis=0, interpolate=True):
+        """
+        Normalize the magnitude and phase data with the given complex data.
+    
+        Args:
+            mag_param_name (str): The name of the magnitude parameter(s) to normalize.
+            phase_param_name (str): The name of the phase parameter(s) to normalize.
+            cData_bg (numpy.ndarray): The complex background data.
+            x_bg (numpy.ndarray): The x-values of the background data.
+            axis (int, optional): The axis along which to normalize the data. Can be 0 and 1. Defaults to 0.
+            interpolate (bool, optional): Whether to interpolate the data. Defaults to False.
+    
+        Returns:
+            None
+
+        """
+    
+        mag_vals = self.dependent_parameters[mag_param_name]['values']
+        phase_vals = self.dependent_parameters[phase_param_name]['values']
+        cData_to_normalize = 10**(mag_vals/20)*np.exp(1j*phase_vals)
+        if (len(self.dependent_parameters[mag_param_name]['paramspec'].depends_on_) > 1) and (axis == 0):
+            x_vals = self.independent_parameters['y']['values']
+        else:
+            x_vals = self.independent_parameters['x']['values']
+
+        data_normalized = self.normalize_data_raw(cData_to_normalize, x_vals, cData_bg, x_bg, axis, 'divide', interpolate)
+        self.copy_dependent_parameter(mag_param_name, mag_param_name+'_normalized')
+        self.dependent_parameters[mag_param_name+'_normalized']['values'] = 20*np.log10(np.abs(data_normalized))
+        self.copy_dependent_parameter(phase_param_name, phase_param_name+'_normalized')
+        self.dependent_parameters[phase_param_name+'_normalized']['values'] = np.angle(data_normalized)
+
+
     def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
         """
         Normalize the data for the specified dependent parameters.

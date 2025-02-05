@@ -111,15 +111,11 @@ class DataSetVNA(DataSet):
         if run_id_bg is not None:
             ds_bg = DataSetVNA(self.exp, run_id_bg)
             freq_bg = ds_bg.freq
-            mag_bg = ds_bg.mag
-            phase_bg = ds_bg.phase
-        elif cData_bg is not None and freq_bg is not None:
-            mag_bg = 20*np.log10(abs(cData_bg))
-            phase_bg = np.angle(cData_bg)
-        else:
+            cData_bg = ds_bg.cData
+        elif cData_bg is None or freq_bg is None:
             raise ValueError("Either run_id_bg or cData_bg and freq_bg must be provided.")
-        self.normalize_data(self.name_mag, data_bg=mag_bg, x_bg=freq_bg, axis=axis, interpolate=interpolate)
-        self.normalize_data(self.name_phase, data_bg=phase_bg, x_bg=freq_bg, axis=axis, interpolate=interpolate)
+        
+        self.normalize_data_mag_phase(self.name_mag, self.name_phase, cData_bg, freq_bg, axis=axis, interpolate=interpolate)
         self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
