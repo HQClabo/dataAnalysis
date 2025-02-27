@@ -528,7 +528,7 @@ class BScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', do_plots=True):
+    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', normalized=False, do_plots=True):
         """
         Analyze the resonator data over a specified frequency and field range.
         Parameters:
@@ -536,6 +536,7 @@ class BScanVNA(DataSetVNA):
             field_range (tuple, optional): A tuple specifying the field range to analyze (min_field, max_field). Defaults to None.
             input_power (float, optional): The input power in dBm. Defaults to 0.
             port_type (str, optional): The type of port to use for analysis. Options are 'notch' and 'reflection'. Defaults to 'notch'.
+            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to False.
             do_plots (bool, optional): Whether to generate plots of the fitting results. Defaults to True.
         Returns:
             None: The results are stored in the instance variable `fit_report`.
@@ -573,6 +574,11 @@ class BScanVNA(DataSetVNA):
             'port': [None]*n_fields,
             }
         
+        if normalized:
+            cData = self.cData_norm
+        else:
+            cData = self.cData
+        
         if freq_centers is None:
             freq_centers = [np.mean(self.freq)]*n_fields
         if freq_span is None:
@@ -591,7 +597,7 @@ class BScanVNA(DataSetVNA):
             else:
                 print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (tbd)")
             # cut and fit data
-            port.add_data(self.freq,self.cData[k])
+            port.add_data(self.freq,self.cData[:,k])
             port.cut_data(freq_centers[k]-freq_span/2,freq_centers[k]+freq_span/2)
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
