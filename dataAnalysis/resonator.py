@@ -629,7 +629,7 @@ class BScanVNA(DataSetVNA):
         Returns:
             freq_centers (np.array): Array of expected resonant frequencies.
         """
-        freq_centers = f_max * np.sqrt(1 - (self.field - field_offset) / field_flux_quantum)
+        freq_centers = f_max * np.sqrt(abs(np.cos(np.pi*(self.field - field_offset)/field_flux_quantum)))
         return freq_centers
 
 
