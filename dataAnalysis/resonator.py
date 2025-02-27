@@ -126,7 +126,7 @@ class DataSetVNA(DataSet):
     def plot_2D_normalized(self):
          return self.plot_2D([self.name_mag+'_normalized', self.name_phase+'_normalized'])
 
-    
+
 class FrequencyScanVNA(DataSetVNA):
     """
     Class for 1D VNA frequency sweeps.
@@ -441,16 +441,6 @@ class PowerScanVNA(DataSetVNA):
             self.fit_report_lmfit = results
             self.port = port
     
-    def get_single_photon_limit(self):
-        """
-        Calculate the single photon limit of the resonator.
-
-        Returns:
-            float: The single photon limit.
-        """
-        return self.fit_report['Nph'][0]
-
-
     
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
@@ -538,23 +528,59 @@ class BScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', do_plots=True):
+    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', do_plots=True):
+        """
+        Analyze the resonator data over a specified frequency and field range.
+        Parameters:
+            freq_range (tuple, optional): A tuple specifying the frequency range to analyze (min_freq, max_freq). Defaults to None.
+            field_range (tuple, optional): A tuple specifying the field range to analyze (min_field, max_field). Defaults to None.
+            input_power (float, optional): The input power in dBm. Defaults to 0.
+            port_type (str, optional): The type of port to use for analysis. Options are 'notch' and 'reflection'. Defaults to 'notch'.
+            do_plots (bool, optional): Whether to generate plots of the fitting results. Defaults to True.
+        Returns:
+            None: The results are stored in the instance variable `fit_report`.
+        Raises:
+            ValueError: If an unsupported port type is specified.
+        Notes:
+        The `fit_report` dictionary contains the following keys:
+            - "Qi": Internal quality factor.
+            - "Qi_err": Error in internal quality factor.
+            - "Qc": Coupling quality factor.
+            - "Qc_err": Error in coupling quality factor.
+            - "Ql": Loaded quality factor.
+            - "Ql_err": Error in loaded quality factor.
+            - "Nph": Number of photons in the resonator.
+            - "single_photon_W": Single photon limit in watts.
+            - "single_photon_dBm": Single photon limit in dBm.
+            - "fr": Resonant frequency.
+            - "fitresults": List of fit results for each field.
+            - "port": List of port objects for each field.
+        """
 
-        n_powers = len(self.power)
+        n_fields = len(self.field)
         fit_report = {
-            "Qi" : np.zeros(n_powers),
-            "Qi_err" : np.zeros(n_powers),
-            "Qc" : np.zeros(n_powers),
-            "Qc_err" : np.zeros(n_powers),
-            "Ql" : np.zeros(n_powers),
-            "Ql_err" : np.zeros(n_powers),
-            "Nph" : np.zeros(n_powers),
-            "fr" : np.zeros(n_powers),
-            'fitresults': [0]*n_powers,
+            "Qi" : np.array([np.nan]*n_fields),
+            "Qi_err" : np.array([np.nan]*n_fields),
+            "Qc" : np.array([np.nan]*n_fields),
+            "Qc_err" : np.array([np.nan]*n_fields),
+            "Ql" : np.array([np.nan]*n_fields),
+            "Ql_err" : np.array([np.nan]*n_fields),
+            "Nph" : np.array([np.nan]*n_fields),
+            "single_photon_W" : np.array([np.nan]*n_fields),
+            "single_photon_dBm" : np.array([np.nan]*n_fields),
+            "fr" : np.array([np.nan]*n_fields),
+            'fitresults': [None]*n_fields,
+            'port': [None]*n_fields,
             }
-        for k,power in enumerate(self.power):
-            if power_range:
-                if (power < power_range[0]) or (power > power_range[1]):
+        
+        if freq_centers is None:
+            freq_centers = [np.mean(self.freq)]*n_fields
+        if freq_span is None:
+            freq_span = [np.max(self.freq)-np.min(self.freq)]
+        
+        for k,field in enumerate(self.field):
+            if field_range:
+                if (field < field_range[0]) or (field > field_range[1]):
                     continue
             
             # define port type
@@ -566,7 +592,7 @@ class BScanVNA(DataSetVNA):
                 print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (tbd)")
             # cut and fit data
             port.add_data(self.freq,self.cData[k])
-            if freq_range: port.cut_data(*freq_range)
+            port.cut_data([freq_centers[k]-freq_span/2,freq_centers[k]+freq_span/2])
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
             if do_plots == True:
@@ -584,10 +610,27 @@ class BScanVNA(DataSetVNA):
                 fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
             fit_report["Ql"][k] = port.fitresults["Ql"]
             fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
-            fit_report["Nph"][k] = port.get_photons_in_resonator(power - attenuation,unit='dBm')
+            fit_report["Nph"][k] = port.get_photons_in_resonator(input_power,unit='dBm')
+            fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
+            fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
             fit_report["fr"][k] = port.fitresults["fr"]
             fit_report['fitresults'][k] = port.fitresults
         self.fit_report = fit_report
+
+    def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            field_offset (float, optional): Offset field. Defaults to 0.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        freq_centers = f_max * np.sqrt(1 - (self.field - field_offset) / field_flux_quantum)
+        return freq_centers
 
 
     def normalize_data_from_index(self, idx=-1, axis=0):
@@ -600,24 +643,72 @@ class BScanVNA(DataSetVNA):
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
-    def plot_QvsP(self,label='',log_x=True,**kwargs):
+    def plot_QvsB(self,label='',log_y=True,**kwargs):
+        """
+        Plots the quality factors (Qi, Qc, Ql) with error bars versus magnetic field.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
         fit = self.fit_report
         fig, ax = plt.subplots(1)
-        fig.dpi = res
-        if log_x:
+        if log_y:
             ax.loglog()
-        else:
-            ax.semilogx()
-        ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-        ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-        ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
+        ax.errorbar(self.field/1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+        ax.errorbar(self.field/1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+        ax.errorbar(self.field/1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
         ax.legend()
-        ax.set_xlabel('photon number')
+        ax.set_xlabel('Magnetic field (mT)')
         ax.set_ylabel('Q')
         ax.grid()
         fig.suptitle(label)
         fig.tight_layout()
         return fig,ax
+    
+    def plot_QvsB(self,label='',log_y=True,**kwargs):
+        """
+        Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
 
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
 
-        
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        fit = self.fit_report
+        fig, ax = plt.subplots(1)
+        if log_y:
+            ax.loglog()
+        ax.errorbar(fit['fr']/1e9,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+        ax.errorbar(fit['fr']/1e9,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+        ax.errorbar(fit['fr']/1e9,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
+        ax.legend()
+        ax.set_xlabel('$f_r$ (GHz)')
+        ax.set_ylabel('Q')
+        ax.grid()
+        fig.suptitle(label)
+        fig.tight_layout()
+        return fig,ax

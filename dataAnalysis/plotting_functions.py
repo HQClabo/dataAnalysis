@@ -224,7 +224,7 @@ def format_plot(ax,
                 subtitle='',
                 x_lim=None,
                 y_lim=None,
-                res=300,
+                dpi=None,
                 fontsize=None,
                 grid=False,
                 title_kw={},
@@ -235,7 +235,7 @@ def format_plot(ax,
                 ):
     
     fig = ax.get_figure()
-    fig.dpi = res
+    if dpi: fig.dpi = dpi
     if title: fig.suptitle(title,fontsize=fontsize,**title_kw)
     if subtitle: ax.set_title(subtitle,fontsize=fontsize, **subtitle_kw)
     if xlabel: ax.set_xlabel(xlabel,fontsize=fontsize,**xlabel_kw)
