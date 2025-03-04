@@ -638,7 +638,8 @@ class BScanVNA(DataSetVNA):
         Returns:
             freq_centers (np.array): Array of expected resonant frequencies.
         """
-        freq_centers = f_max * np.sqrt(abs(np.sinc(np.pi*(self.field - field_offset)/field_flux_quantum)))
+        # in numpy, the sinc function already includes the pi
+        freq_centers = f_max * np.sqrt(abs(np.sinc((self.field - field_offset)/field_flux_quantum)))
         return freq_centers
     
     def get_freq_centers_SQUID(self, f_max, field_flux_quantum, field_offset=0):
