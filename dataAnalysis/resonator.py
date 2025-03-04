@@ -599,11 +599,7 @@ class BScanVNA(DataSetVNA):
             else:
                 print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (tbd)")
             # cut and fit data
-<<<<<<< Updated upstream
-            port.add_data(self.freq,cData[k])
-=======
             port.add_data(self.freq,cData[:,k])
->>>>>>> Stashed changes
             port.cut_data(freq_centers[k]-freq_span/2,freq_centers[k]+freq_span/2)
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
