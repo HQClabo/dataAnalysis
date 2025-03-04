@@ -597,7 +597,7 @@ class BScanVNA(DataSetVNA):
             else:
                 print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (tbd)")
             # cut and fit data
-            port.add_data(self.freq,self.cData[:,k])
+            port.add_data(self.freq,cData[k])
             port.cut_data(freq_centers[k]-freq_span/2,freq_centers[k]+freq_span/2)
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
@@ -624,6 +624,21 @@ class BScanVNA(DataSetVNA):
         self.fit_report = fit_report
 
     def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            field_offset (float, optional): Offset field. Defaults to 0.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        freq_centers = f_max * np.sqrt(abs(np.sinc(np.pi*(self.field - field_offset)/field_flux_quantum)))
+        return freq_centers
+    
+    def get_freq_centers_SQUID(self, f_max, field_flux_quantum, field_offset=0):
         """
         Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
 
