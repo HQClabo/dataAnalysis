@@ -329,8 +329,6 @@ class KappaDQDFit:
             A_list.append(result.best_values['A'])
             kappa_tot_list.append(result.best_values['kappa_tot'])
             offset_list.append(result.best_values['offset'])
-            if do_plots:
-                self.plot_single_fit(i)
             self.fit_reports = results
             self.fr = np.array(fr_list)
             self.A = np.array(A_list)
@@ -342,6 +340,9 @@ class KappaDQDFit:
             else:
                 self.kappa_res = kappa_res
                 self.kappa_DQD = self.kappa_tot - kappa_res
+
+            if do_plots:
+                self.plot_single_fit(i, fit_report=result)
         return results
 
     def plot_max_peak_fit(self):
@@ -357,7 +358,7 @@ class KappaDQDFit:
         """
         return self.plot_single_fit(np.argmax(self.A))
     
-    def plot_single_fit(self, cut_idx=None):
+    def plot_single_fit(self, cut_idx=None, fit_report=None):
         """
         Plots the fit of a single frequency sweep.
         Parameters:
@@ -378,18 +379,20 @@ class KappaDQDFit:
         - The y-axis represents the current Id in pA.
         - The plot includes a text box with the total kappa value and, if available, the DQD kappa and resonator kappa values.
         """
+        if fit_report is None:
+            if cut_idx is None:
+                fit_report = self.fit_reports
+            else:
+                fit_report = self.fit_reports[cut_idx]
+                
         if cut_idx is None:
             detuning = self.detuning
             Id = self.Id
-            fit_report = self.fit_reports
-            kappa_res = self.kappa_res
             kappa_DQD = self.kappa_DQD
         else:
             detuning = self.detuning[cut_idx]
             Id = self.Id[:, cut_idx]
-            fit_report = self.fit_reports[cut_idx]
             if self.kappa_res is not None:
-                kappa_res = self.kappa_res[cut_idx]
                 kappa_DQD = self.kappa_DQD[cut_idx]
 
         fig, ax = plt.subplots()
@@ -401,9 +404,9 @@ class KappaDQDFit:
 
         kappa_tot = fit_report.best_values['kappa_tot'] / 1e6
         textstr = '$\kappa_{tot}$ = '+f'{kappa_tot:.2f} MHz' + '\n'
-        if kappa_res is not None:
-            textstr += '$\kappa_{DQD}$ = '+f'{(kappa_DQD)*1e3:.2f} MHz' + '\n'
-            textstr += '$\kappa$ = '+f'{kappa_res*1e3:.2f} MHz'
+        if self.kappa_res is not None:
+            textstr += '$\kappa_{DQD}$ = '+f'{(kappa_DQD) / 1e6:.2f} MHz' + '\n'
+            textstr += '$\kappa$ = '+f'{self.kappa_res / 1e6:.2f} MHz'
         
         ax.text(0.97, 0.97, textstr, transform=ax.transAxes, verticalalignment='top', horizontalalignment='right', color='black')
         return fig, ax
