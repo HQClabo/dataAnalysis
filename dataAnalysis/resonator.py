@@ -314,6 +314,7 @@ class PowerScanVNA(DataSetVNA):
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
             if do_plots == True:
+                print(f'Power = {power} dBm')
                 port.plotall()
 
             # Add fitting results to the dictionary
@@ -400,7 +401,8 @@ class PowerScanVNA(DataSetVNA):
                                'alpha': alpha,
                                'delay': delay,
                                'phi0': 0}
-            for guess in guesses.keys(): 
+            for guess in guesses.keys():
+                print(f'Power = {power} dBm')
                 initial_guesses[guess] = guesses[guess]
             if print_guesses: 
                 print(initial_guesses)
@@ -597,11 +599,16 @@ class BScanVNA(DataSetVNA):
             else:
                 print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (tbd)")
             # cut and fit data
+<<<<<<< Updated upstream
             port.add_data(self.freq,cData[k])
+=======
+            port.add_data(self.freq,cData[:,k])
+>>>>>>> Stashed changes
             port.cut_data(freq_centers[k]-freq_span/2,freq_centers[k]+freq_span/2)
             # port.autofit(fr_guess=center_freq[k])
             port.autofit()
             if do_plots == True:
+                print(f'B = {field*1e3} mT')
                 port.plotall()
             # add fitting results to the dictionary
             if port_type == 'notch':
@@ -687,10 +694,10 @@ class BScanVNA(DataSetVNA):
         fit = self.fit_report
         fig, ax = plt.subplots(1)
         if log_y:
-            ax.loglog()
-        ax.errorbar(self.field/1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-        ax.errorbar(self.field/1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-        ax.errorbar(self.field/1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
+            ax.semilogy()
+        ax.errorbar(self.field*1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+        ax.errorbar(self.field*1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+        ax.errorbar(self.field*1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
         ax.legend()
         ax.set_xlabel('Magnetic field (mT)')
         ax.set_ylabel('Q')
@@ -699,7 +706,7 @@ class BScanVNA(DataSetVNA):
         fig.tight_layout()
         return fig,ax
     
-    def plot_QvsB(self,label='',log_y=True,**kwargs):
+    def plot_Qvsfr(self,label='',log_y=True,**kwargs):
         """
         Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
 
@@ -722,7 +729,7 @@ class BScanVNA(DataSetVNA):
         fit = self.fit_report
         fig, ax = plt.subplots(1)
         if log_y:
-            ax.loglog()
+            ax.semilogy()
         ax.errorbar(fit['fr']/1e9,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
         ax.errorbar(fit['fr']/1e9,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
         ax.errorbar(fit['fr']/1e9,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
