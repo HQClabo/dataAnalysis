@@ -382,10 +382,15 @@ class KappaDQDFit:
             detuning = self.detuning
             Id = self.Id
             fit_report = self.fit_reports
+            kappa_res = self.kappa_res
+            kappa_DQD = self.kappa_DQD
         else:
             detuning = self.detuning[cut_idx]
             Id = self.Id[:, cut_idx]
             fit_report = self.fit_reports[cut_idx]
+            if self.kappa_res is not None:
+                kappa_res = self.kappa_res[cut_idx]
+                kappa_DQD = self.kappa_DQD[cut_idx]
 
         fig, ax = plt.subplots()
         fig.suptitle(f'Run #{self.run_id}' + ' - $\kappa_{DQD}$ fit' + f' - detuning = {detuning*1e3:.2f} mV')
@@ -396,9 +401,9 @@ class KappaDQDFit:
 
         kappa_tot = fit_report.best_values['kappa_tot'] / 1e6
         textstr = '$\kappa_{tot}$ = '+f'{kappa_tot:.2f} MHz' + '\n'
-        if self.kappa_res is not None:
-            textstr += '$\kappa_{DQD}$ = '+f'{(self.kappa_DQD)*1e3:.2f} MHz' + '\n'
-            textstr += '$\kappa$ = '+f'{self.kappa_res*1e3:.2f} MHz'
+        if kappa_res is not None:
+            textstr += '$\kappa_{DQD}$ = '+f'{(kappa_DQD)*1e3:.2f} MHz' + '\n'
+            textstr += '$\kappa$ = '+f'{kappa_res*1e3:.2f} MHz'
         
         ax.text(0.97, 0.97, textstr, transform=ax.transAxes, verticalalignment='top', horizontalalignment='right', color='black')
         return fig, ax
