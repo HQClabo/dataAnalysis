@@ -19,6 +19,24 @@ def S11_resonator_reflection(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay):
     environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
     return S11 * environment
 
+def fit_correction(fitReport, threshold = 1):
+    # create empty dictionary
+    fitReportCorr = {}
+    good_fit_idx = []
+    for key in fitReport.keys():
+        fitReportCorr[key] = np.array([])
+    
+    # add fit result only if the all the constrains pass
+    for k in range(len(fitReport["Qi"])):
+        bool_Qi = fitReport["Qi_err"][k] < threshold*fitReport["Qi"][k]
+        bool_Qc = fitReport["Qc_err"][k] < threshold*fitReport["Qc"][k]
+        bool_Ql = fitReport["Ql_err"][k] < threshold*fitReport["Ql"][k]
+        if bool_Qi and bool_Qc and bool_Ql:
+            for key in fitReportCorr.keys():
+                fitReportCorr[key] = np.append(fitReportCorr[key], fitReport[key][k])
+            good_fit_idx.append(k)
+    return fitReportCorr, good_fit_idx
+
 class DataSetVNA(DataSet):
     """
     A class representing a dataset from a Vector Network Analyzer (VNA) measurement. See DataSet class in base.py for more information.
@@ -454,7 +472,7 @@ class PowerScanVNA(DataSetVNA):
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
-    def plot_QvsP(self,label='',log_y=True,**kwargs):
+    def plot_QvsP(self,label='',log_y=True,threshold=None,**kwargs):
         """
         Plots the quality factors (Qi, Qc, Ql) versus photon number (Nph) with error bars.
 
@@ -474,7 +492,10 @@ class PowerScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        fit = self.fit_report
+        if threshold is not None:
+            fit, field_idxs = fit_correction(self.fit_report, threshold)
+        else:
+            fit = self.fit_report
         fig, ax = plt.subplots(1)
         if log_y:
             ax.loglog()
@@ -668,7 +689,7 @@ class BScanVNA(DataSetVNA):
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
-    def plot_QvsB(self,label='',log_y=True,**kwargs):
+    def plot_QvsB(self,label='',log_y=True,threshold=None,**kwargs):
         """
         Plots the quality factors (Qi, Qc, Ql) with error bars versus magnetic field.
 
@@ -678,6 +699,8 @@ class BScanVNA(DataSetVNA):
             Title of the plot. Default is an empty string.
         log_y : bool, optional
             If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            If set to a value, 
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -688,13 +711,18 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        fit = self.fit_report
+        if threshold is not None:
+            fit, field_idxs = fit_correction(self.fit_report, threshold)
+            field = np.array([self.field[idx] for idx in field_idxs])
+        else:
+            fit = self.fit_report
+            field = self.field
         fig, ax = plt.subplots(1)
         if log_y:
             ax.semilogy()
-        ax.errorbar(self.field*1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-        ax.errorbar(self.field*1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-        ax.errorbar(self.field*1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
+        ax.errorbar(field*1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+        ax.errorbar(field*1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+        ax.errorbar(field*1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
         ax.legend()
         ax.set_xlabel('Magnetic field (mT)')
         ax.set_ylabel('Q')
@@ -703,7 +731,7 @@ class BScanVNA(DataSetVNA):
         fig.tight_layout()
         return fig,ax
     
-    def plot_Qvsfr(self,label='',log_y=True,**kwargs):
+    def plot_Qvsfr(self,label='',log_y=True,threshold=None,**kwargs):
         """
         Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
 
@@ -723,7 +751,10 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        fit = self.fit_report
+        if threshold is not None:
+            fit, field_idxs = fit_correction(self.fit_report, threshold)
+        else:
+            fit = self.fit_report
         fig, ax = plt.subplots(1)
         if log_y:
             ax.semilogy()
