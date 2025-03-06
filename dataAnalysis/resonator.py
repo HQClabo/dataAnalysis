@@ -62,13 +62,17 @@ class DataSetVNA(DataSet):
 
     Examples:
         # Create a DataSetVNA object
-        ds = DataSetVNA(run_id='123', exp=exp)
+        ds = DataSetVNA(exp=exp, run_id='123')
 
-        # Extract data from the VNA measurement
-        ds._extract_data_vna_base()
-
-        # Normalize the data using a background measurement
+        # Normalize the data using a background measurement run (must be a single frequency sweep)
         ds.normalize_data_vna(run_id_bg='456', axis=0, interpolate=True)
+
+        or
+
+        # Normalize the data using a arbitrary arrays for cData and frequency
+        cData = np.array([1+1j, 2+2j, 3+3j])
+        freq = np.array([1, 2, 3])
+        ds.normalize_data_vna(cData_bg=cData, freq_bg=freq, axis=0, interpolate=True)
     """
 
     def __init__(self, exp, run_id=None, station=None):
@@ -85,16 +89,18 @@ class DataSetVNA(DataSet):
             None
         """
         # Find param names for mag, phase and freq
-        for key, param in self.dependent_parameters.items():
-            if 'magnitude' in param['paramspec'].name: 
-                self.name_mag = key
-            if 'phase' in param['paramspec'].name: 
-                self.name_phase = key
-                phase_unit = param['paramspec'].unit
-        for key, param in self.independent_parameters.items():
-            if 'frequency' in param['paramspec'].name: 
-                self.name_freq = key
+        freq = self.get_dependent_parameter_by_name('magnitude')
+        mag = self.get_dependent_parameter_by_name('phase')
+        phase = self.get_independent_parameter_by_name('frequency')
+
+        if freq is None or mag is None or phase is None:
+            raise ValueError("The dataset does not contain the required parameters for a VNA measurement.")
         
+        self.name_mag = mag['paramspec'].name
+        self.name_phase = phase['paramspec'].name
+        phase_unit = phase['paramspec'].unit
+        self.name_freq = freq['paramspec'].name
+
         # Convert phase to radians always
         if phase_unit == 'rad':
             pass
@@ -104,9 +110,9 @@ class DataSetVNA(DataSet):
             raise ValueError(f'The phase \"{phase_unit}\" was not recognized.')
 
         # Generate attributes
-        self.freq = self.independent_parameters[self.name_freq]['values']
-        self.mag = self.dependent_parameters[self.name_mag]['values']
-        self.phase = self.dependent_parameters[self.name_phase]['values']
+        self.freq = freq['values']
+        self.mag = mag['values']
+        self.phase = phase['values']
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
     def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True):
