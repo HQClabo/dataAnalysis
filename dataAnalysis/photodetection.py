@@ -341,8 +341,8 @@ class KappaDQDFit(DataSet):
     def __init__(self, exp, run_id):
         super().__init__(exp=exp, run_id=run_id)
         self.Id = self.get_dependent_parameter_by_name('I_d')['values']
-        self.power = self.get_independent_parameter_by_name('power')['values']
-        detuning = self.get_independent_parameter_by_name('detuning')['values']
+        self.freq = self.get_independent_parameter_by_name('frequency')['values']
+        detuning = self.get_independent_parameter_by_name('detuning')
         if detuning is None:
             self.detuning = None
         else:
@@ -555,11 +555,13 @@ class KappaDQDFit(DataSet):
             Id = self.Id[:, cut_idx]
             if self.kappa_res is not None:
                 kappa_DQD = self.kappa_DQD[cut_idx]
+        fit_freq = np.linspace(self.freq.min(), self.freq.max(), len(self.freq)*5)
+        fit_data = fit_report.eval(fit_report.params, fdrive=fit_freq)
 
         fig, ax = plt.subplots()
         fig.suptitle(f'Run #{self.run_id}' + ' - $\kappa_{DQD}$ fit' + f' - detuning = {detuning*1e3:.2f} mV')
         ax.plot(self.freq/1e9, Id*1e12, ls='', marker='.')
-        ax.plot(self.freq/1e9, fit_report.best_fit*1e12, ls='-', marker='')
+        ax.plot(fit_freq/1e9, fit_data*1e12, ls='-', marker='')
         ax.set_xlabel('$f_{drive}$ (GHz)')
         ax.set_ylabel('$I_d$ (pA)')
 

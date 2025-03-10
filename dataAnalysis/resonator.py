@@ -89,17 +89,17 @@ class DataSetVNA(DataSet):
             None
         """
         # Find param names for mag, phase and freq
-        freq = self.get_dependent_parameter_by_name('magnitude')
-        mag = self.get_dependent_parameter_by_name('phase')
-        phase = self.get_independent_parameter_by_name('frequency')
+        mag = self.get_dependent_parameter_by_name('magnitude')
+        phase = self.get_dependent_parameter_by_name('phase')
+        freq = self.get_independent_parameter_by_name('frequency')
 
         if freq is None or mag is None or phase is None:
             raise ValueError("The dataset does not contain the required parameters for a VNA measurement.")
         
-        self.name_mag = mag['paramspec'].name
-        self.name_phase = phase['paramspec'].name
+        self.name_mag = mag['name']
+        self.name_phase = phase['name']
         phase_unit = phase['paramspec'].unit
-        self.name_freq = freq['paramspec'].name
+        self.name_freq = freq['name']
 
         # Convert phase to radians always
         if phase_unit == 'rad':
