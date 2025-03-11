@@ -6,7 +6,7 @@ import qcodes as qc
 from resonator_tools import circuit
 import lmfit
 from .base import DataSet
-from .resonator_fitting import fit_correction, fit_power_sweep, fit_flux_sweep
+import dataAnalysis.resonator_fitting as resfit
 
 def S21_resonator_notch(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay, phi0):
         delta_r = fdrive - fr
@@ -168,62 +168,32 @@ class FrequencyScanVNA(DataSetVNA):
             self.phase = self.phase[freq_slice]
             self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
-    def analyze(self, freq_range=None, input_power=0, port_type='notch', normalized=False, do_plots=True):
+    def analyze(self, freq_range=None, power=-140, port_type='notch', normalized=True, method='resonator_tools', do_plots=True):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
         Args:
             freq_range (tuple, optional): Frequency range to consider for analysis. Defaults to None.
-            input_power (float, optional): Input power in dBm that arrives at the coupling port. Defaults to 0.
+            power (float, optional): Input power in dBm that arrives at the coupling port. Defaults to -140 dBm.
             port_type (str, optional): Type of port to use for analysis. Supported values are 'notch' or 'reflection'. Defaults to 'notch'.
-            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to False.
+            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to True.
+            method (str, optional): Method to use for fitting. Supported values are 'resonator_tools' or 'lmfit'. Defaults to 'resonator_tools'.
             do_plots (bool, optional): Flag indicating whether to generate plots. Defaults to True.
 
         Returns:
             None
+
+        Attributes:
+            Dictionary containing the results of the fit.
         """
-        fit_report = {}
-
+        cData = self.cData
         if normalized:
-            cData = self.cData_norm
-        else:
-            cData = self.cData
-            
-        # Define port type to use
-        if port_type == 'notch':
-            port = circuit.notch_port()
-        elif port_type == 'reflection':
-            port = circuit.reflection_port()
-        else:
-            print("This port type is not supported. Supported types are 'notch' and 'reflection'.")
+            try:
+                cData = self.cData_norm
+            except AttributeError:
+                raise Warning("Normalized data not found. Using raw data instead.")
         
-        # Cut and fit data
-        port.add_data(self.freq,cData)
-        if freq_range: 
-            port.cut_data(*freq_range)
-        # port.autofit(fr_guess=center_freq[k])
-        port.autofit()
-        if do_plots == True:
-            port.plotall()
-
-        # Add fitting results to the dictionary
-        if port_type == 'notch':
-            fit_report["Qi"] = port.fitresults["Qi_dia_corr"]
-            fit_report["Qi_err"] = port.fitresults["Qi_dia_corr_err"]
-            fit_report["Qc"] = port.fitresults["Qc_dia_corr"]
-            fit_report["Qc_err"] = port.fitresults["absQc_err"]
-        else:
-            fit_report["Qi"] = port.fitresults["Qi"]
-            fit_report["Qi_err"] = port.fitresults["Qi_err"]
-            fit_report["Qc"] = port.fitresults["Qc"]
-            fit_report["Qc_err"] = port.fitresults["Qc_err"]
-        fit_report["Ql"] = port.fitresults["Ql"]
-        fit_report["Ql_err"] = port.fitresults["Ql_err"]
-        fit_report["Nph"] = port.get_photons_in_resonator(input_power,unit='dBm')
-        fit_report["fr"] = port.fitresults["fr"]
-        fit_report['fitresults'] = port.fitresults
-        self.fit_report = fit_report
-        self.port = port
+        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq, freq_range, power, port_type, method, do_plots)
 
 
 class PowerScanVNA(DataSetVNA):
@@ -264,7 +234,7 @@ class PowerScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, method='resonator_tools', do_plots=True):
+    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=True, method='resonator_tools', do_plots=True):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
@@ -273,7 +243,7 @@ class PowerScanVNA(DataSetVNA):
             power_range (tuple, optional): Power range to consider for analysis. Defaults to None.
             attenuation (float, optional): Expected attenuation in dB between the instrument output and the resonator port. Defaults to 0.
             port_type (str, optional): Type of port to use for analysis. Supported values are 'notch' or 'reflection'. Defaults to 'notch'.
-            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to False.
+            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to True.
             method (str, optional): Method to use for fitting. Supported values are 'resonator_tools' or 'lmfit'. Defaults to 'resonator_tools'.
             do_plots (bool, optional): Flag indicating whether to generate plots. Defaults to True.
 
@@ -284,202 +254,14 @@ class PowerScanVNA(DataSetVNA):
             Dictionary containing the results of the fit as np.arrays for each parameter.
         """
         power = self.power
+        cData = self.cData
         if normalized:
-            cData = self.cData_norm
-        else:
-            cData = self.cData
-        if power_range:
-            power_slice = self.find_slice(self.power, power_range)
-            power = power[power_slice]
-            cData = cData[:,power_slice]
-        self.fit_report = fit_power_sweep(cData.T, self.freq, power, freq_range, attenuation, port_type, method, do_plots)
+            try:
+                cData = self.cData_norm
+            except AttributeError:
+                print("Warning: Normalized data not found. Using raw data instead.")
 
-    def _analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, do_plots=True):
-        """
-        Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
-
-        Args:
-            freq_range (tuple, optional): Frequency range to consider for analysis. Defaults to None.
-            power_range (tuple, optional): Power range to consider for analysis. Defaults to None.
-            attenuation (float, optional): Expected attenuation in dB between the instrument output and the resonator port. Defaults to 0.
-            port_type (str, optional): Type of port to use for analysis. Supported values are 'notch' or 'reflection'. Defaults to 'notch'.
-            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to False.
-            do_plots (bool, optional): Flag indicating whether to generate plots. Defaults to True.
-
-        Returns:
-            None
-        """
-        n_powers = len(self.power)
-        fit_report = {
-            "Qi" : np.array([np.nan]*n_powers),
-            "Qi_err" : np.array([np.nan]*n_powers),
-            "Qc" : np.array([np.nan]*n_powers),
-            "Qc_err" : np.array([np.nan]*n_powers),
-            "Ql" : np.array([np.nan]*n_powers),
-            "Ql_err" : np.array([np.nan]*n_powers),
-            "Nph" : np.array([np.nan]*n_powers),
-            "single_photon_W" : np.array([np.nan]*n_powers),
-            "single_photon_dBm" : np.array([np.nan]*n_powers),
-            "fr" : np.array([np.nan]*n_powers),
-            'fitresults': [None]*n_powers,
-            'port': [None]*n_powers,
-            }
-
-        if normalized:
-            cData = self.cData_norm
-        else:
-            cData = self.cData
-
-        # Cycle for all powers. k is the power index
-        for k,power in enumerate(self.power):
-            if power_range:
-                if (power < power_range[0]) or (power > power_range[1]):
-                    continue
-            
-            # Define port type
-            if port_type == 'notch':
-                port = circuit.notch_port()
-            elif port_type == 'reflection':
-                port = circuit.reflection_port()
-            else:
-                print("This port type is not supported. Supported types are 'notch' and 'reflection'.")
-            
-            # Cut data
-            port.add_data(self.freq,cData[:,k])
-            if freq_range: 
-                port.cut_data(*freq_range)
-            # port.autofit(fr_guess=center_freq[k])
-            port.autofit()
-            if do_plots == True:
-                print(f'Power = {power} dBm')
-                port.plotall()
-
-            # Add fitting results to the dictionary
-            if port_type == 'notch':
-                fit_report["Qi"][k] = port.fitresults["Qi_dia_corr"]
-                fit_report["Qi_err"][k] = port.fitresults["Qi_dia_corr_err"]
-                fit_report["Qc"][k] = port.fitresults["Qc_dia_corr"]
-                fit_report["Qc_err"][k] = port.fitresults["absQc_err"]
-            else:
-                fit_report["Qi"][k] = port.fitresults["Qi"]
-                fit_report["Qi_err"][k] = port.fitresults["Qi_err"]
-                fit_report["Qc"][k] = port.fitresults["Qc"]
-                fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
-            fit_report["Ql"][k] = port.fitresults["Ql"]
-            fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
-            fit_report["Nph"][k] = port.get_photons_in_resonator(power - attenuation,unit='dBm')
-            fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
-            fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
-            fit_report["fr"][k] = port.fitresults["fr"]
-            fit_report['fitresults'][k] = port.fitresults
-            fit_report['port'][k] = port
-
-        self.fit_report = fit_report
-        # self.port = port
-
-    def analyze_lmfit(self, freq_range=None, power_range=None, guesses: dict = {}, attenuation=0, port_type='notch', normalized=False, do_plots=True, print_guesses=False):
-        """
-        Fit a resonator reflection data that has previously been added to the port
-        to a model with a Lorentzian resonance and a linear background.
-
-        Args:
-            fcenter : float, optional
-                Center frequency of the resonance. If None, the function will try to guess
-                the center frequency from the data.
-            fspan : float, optional
-                Frequency span around the center frequency to fit to. If None, the entire frequency range will be used.
-            guesses : dict, optional
-                Initial guesses for the fit parameters. If None, the function will try to guess
-                the parameters from the data.
-            do_plot : bool, optional
-                Whether to plot the fit results.
-
-        Returns:
-            result : lmfit.model.ModelResult
-                The result of the fit, including the optimal values for the fit parameters.
-        """
-        if normalized:
-            cData = self.cData_norm
-        else:
-            cData = self.cData
-
-        results = []
-
-        # Cycle over the powers. k is the power index
-        for k,power in enumerate(self.power):
-            if power_range:
-                if (power < power_range[0]) or (power > power_range[1]):
-                    continue
-
-            # Define port type
-            if port_type == 'notch':
-                port = circuit.notch_port()
-                model_func = S21_resonator_notch
-            elif port_type == 'reflection':
-                port = circuit.reflection_port()
-                model_func = S11_resonator_reflection
-            else:
-                print("This port type is not supported. Supported types are 'notch' or 'reflection'")
-            
-            # Cut and provide data
-            port.add_data(self.freq,cData[:,k])
-            if freq_range:
-                port.cut_data(*freq_range)
-            fdrive = port.f_data
-            zdata = port.z_data_raw
-
-            # Obtain guesses with resonator_tools
-            delay, a, alpha, fr, Ql, A2, frcal = port.do_calibration(fdrive, zdata)
-
-            initial_guesses = {'fr': frcal,
-                               'kappa_int': fr/Ql/2,
-                               'kappa_ext': fr/Ql/2,
-                               'a': a,
-                               'alpha': alpha,
-                               'delay': delay,
-                               'phi0': 0}
-            for guess in guesses.keys():
-                print(f'Power = {power} dBm')
-                initial_guesses[guess] = guesses[guess]
-            if print_guesses: 
-                print(initial_guesses)
-    
-            params=lmfit.Parameters()
-            params.add('fr', value=initial_guesses['fr'], vary=True)
-            params.add('kappa_int', value=initial_guesses['kappa_int'], vary=True)
-            params.add('kappa_ext', value=initial_guesses['kappa_ext'], vary=True)
-            params.add('a', value=initial_guesses['a'], vary=True)
-            params.add('alpha', value=initial_guesses['alpha'], vary=True)
-            params.add('delay', value=initial_guesses['delay'], vary=True)
-            if port_type == 'notch': params.add('phi0', value=initial_guesses['phi0'], vary=True)
-    
-            # Perform the fit
-            model = lmfit.Model(model_func, independent_vars=['fdrive'])
-            result = model.fit(zdata, params, fdrive=fdrive)
-    
-            # Plot
-            if do_plots:
-                fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
-                fig.set_size_inches(18/2.54, 5/2.54)
-                # fig.suptitle(plot_title)
-                
-                axes[0].plot(fdrive/1e9, 20*np.log10(abs(zdata)), marker='.', ms=2, ls='')
-                axes[0].plot(fdrive/1e9, 20*np.log10(abs(result.best_fit)))
-                # axes[0].plot(fdrive, 20*np.log(abs(result.eval(params))))
-                # myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21| (dB)')
-                axes[1].plot(fdrive/1e9, 180/np.pi*np.angle(zdata), marker='.', ms=2, ls='')
-                axes[1].plot(fdrive/1e9, 180/np.pi*np.angle(result.best_fit))
-                # myplt.format_plot(axes[1],xlabel='f (GHz)',ylabel='S21 (°)')
-                axes[2].plot(zdata.real, zdata.imag, marker='.', ms=2, ls='')
-                axes[2].plot(result.best_fit.real, result.best_fit.imag)
-                # myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
-            plt.show()
-            plt.close()
-            results.append(result)
-
-            self.fit_report_lmfit = results
-            self.port = port
-    
+        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq, power, freq_range, power_range, attenuation, port_type, method, do_plots)
     
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
@@ -501,6 +283,9 @@ class PowerScanVNA(DataSetVNA):
             Title of the plot. Default is an empty string.
         log_y : bool, optional
             If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -511,25 +296,34 @@ class PowerScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        if threshold is not None:
-            fit, field_idxs = fit_correction(self.fit_report, threshold)
-        else:
-            fit = self.fit_report
-        fig, ax = plt.subplots(1)
-        if log_y:
-            ax.loglog()
-        else:
-            ax.semilogx()
-        ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-        ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-        ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
-        ax.legend()
-        ax.set_xlabel('photon number')
-        ax.set_ylabel('Q')
-        ax.grid()
-        fig.suptitle(label)
-        fig.tight_layout()
-        return fig,ax
+        return resfit.plot_QvsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
+
+    def plot_kappavsP(self,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+        """
+        Plots the quality factors (kappa_i, kappa_c, kappa_l) versus photon number (Nph) with error bars.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        kappa_scaling : float, optional
+            Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_kappavsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
 
 
 class BScanVNA(DataSetVNA):
@@ -600,71 +394,12 @@ class BScanVNA(DataSetVNA):
             - "port": List of port objects for each field.
         """
 
-        n_fields = len(self.field)
-        fit_report = {
-            "Qi" : np.array([np.nan]*n_fields),
-            "Qi_err" : np.array([np.nan]*n_fields),
-            "Qc" : np.array([np.nan]*n_fields),
-            "Qc_err" : np.array([np.nan]*n_fields),
-            "Ql" : np.array([np.nan]*n_fields),
-            "Ql_err" : np.array([np.nan]*n_fields),
-            "Nph" : np.array([np.nan]*n_fields),
-            "single_photon_W" : np.array([np.nan]*n_fields),
-            "single_photon_dBm" : np.array([np.nan]*n_fields),
-            "fr" : np.array([np.nan]*n_fields),
-            'fitresults': [None]*n_fields,
-            'port': [None]*n_fields,
-            }
-        
         if normalized:
             cData = self.cData_norm
         else:
             cData = self.cData
-        
-        if freq_centers is None:
-            freq_centers = [np.mean(self.freq)]*n_fields
-        if freq_span is None:
-            freq_span = [np.max(self.freq)-np.min(self.freq)]
-        
-        for k,field in enumerate(self.field):
-            if field_range:
-                if (field < field_range[0]) or (field > field_range[1]):
-                    continue
-            
-            # define port type
-            if port_type == 'notch':
-                port = circuit.notch_port()
-            elif port_type == 'reflection':
-                port = circuit.reflection_port()
-            else:
-                print("This port type is not supported. Use 'notch', 'reflection' or 'transmission' (tbd)")
-            # cut and fit data
-            port.add_data(self.freq,cData[:,k])
-            port.cut_data(freq_centers[k]-freq_span/2,freq_centers[k]+freq_span/2)
-            # port.autofit(fr_guess=center_freq[k])
-            port.autofit()
-            if do_plots == True:
-                print(f'B = {field*1e3} mT')
-                port.plotall()
-            # add fitting results to the dictionary
-            if port_type == 'notch':
-                fit_report["Qi"][k] = port.fitresults["Qi_dia_corr"]
-                fit_report["Qi_err"][k] = port.fitresults["Qi_dia_corr_err"]
-                fit_report["Qc"][k] = port.fitresults["Qc_dia_corr"]
-                fit_report["Qc_err"][k] = port.fitresults["absQc_err"]
-            else:
-                fit_report["Qi"][k] = port.fitresults["Qi"]
-                fit_report["Qi_err"][k] = port.fitresults["Qi_err"]
-                fit_report["Qc"][k] = port.fitresults["Qc"]
-                fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
-            fit_report["Ql"][k] = port.fitresults["Ql"]
-            fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
-            fit_report["Nph"][k] = port.get_photons_in_resonator(input_power,unit='dBm')
-            fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
-            fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
-            fit_report["fr"][k] = port.fitresults["fr"]
-            fit_report['fitresults'][k] = port.fitresults
-        self.fit_report = fit_report
+
+        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq, self.field, freq_centers, freq_span, field_range, input_power, port_type, do_plots)
 
     def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0):
         """
@@ -719,7 +454,8 @@ class BScanVNA(DataSetVNA):
         log_y : bool, optional
             If True, use a logarithmic scale for the y-axis. Default is True.
         threshold : float, optional
-            If set to a value, 
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -730,27 +466,36 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        if threshold is not None:
-            fit, field_idxs = fit_correction(self.fit_report, threshold)
-            field = np.array([self.field[idx] for idx in field_idxs])
-        else:
-            fit = self.fit_report
-            field = self.field
-        fig, ax = plt.subplots(1)
-        if log_y:
-            ax.semilogy()
-        ax.errorbar(field*1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-        ax.errorbar(field*1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-        ax.errorbar(field*1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
-        ax.legend()
-        ax.set_xlabel('Magnetic field (mT)')
-        ax.set_ylabel('Q')
-        ax.grid()
-        fig.suptitle(label)
-        fig.tight_layout()
-        return fig,ax
-    
-    def plot_Qvsfr(self,label='',log_y=True,threshold=None,**kwargs):
+        return resfit.plot_QvsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, **kwargs)
+
+    def plot_kappavsB(self,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+        """
+        Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        kappa_scaling : float, optional
+            Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_kappavsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, **kwargs)
+
+    def plot_Qvsfr(self,label='',log_y=True,threshold=None,fr_scaling=1e-9,**kwargs):
         """
         Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
 
@@ -760,6 +505,11 @@ class BScanVNA(DataSetVNA):
             Title of the plot. Default is an empty string.
         log_y : bool, optional
             If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        kappa_scaling : float, optional
+            Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -770,20 +520,33 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        if threshold is not None:
-            fit, field_idxs = fit_correction(self.fit_report, threshold)
-        else:
-            fit = self.fit_report
-        fig, ax = plt.subplots(1)
-        if log_y:
-            ax.semilogy()
-        ax.errorbar(fit['fr']/1e9,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-        ax.errorbar(fit['fr']/1e9,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-        ax.errorbar(fit['fr']/1e9,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
-        ax.legend()
-        ax.set_xlabel('$f_r$ (GHz)')
-        ax.set_ylabel('Q')
-        ax.grid()
-        fig.suptitle(label)
-        fig.tight_layout()
-        return fig,ax
+        return resfit.plot_Qvsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
+
+    def plot_kappavsfr(self,label='',log_y=True,threshold=None,fr_scaling=1e-9,kappa_scaling=1e-6,**kwargs):
+        """
+        Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        kappa_scaling : float, optional
+            Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
+        kappa_scaling : float, optional
+            Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_kappavsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, fr_scaling=fr_scaling, kappa_scaling=kappa_scaling, **kwargs)

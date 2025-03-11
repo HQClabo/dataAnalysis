@@ -59,15 +59,15 @@ def get_single_photon_limit(fitresults, unit='dBm'):
     unit can be 'dbm' or 'watt'
     '''
     fr = fitresults['fr']
-    k_c = fitresults['kappa_c']
-    k_i = fitresults['kappa']-fitresults['kappa_c']
+    k_c = 2*np.pi*fitresults['kappa_c']
+    k_i = 2*np.pi*(fitresults['kappa']-fitresults['kappa_c'])
     power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*(k_c+k_i)**2))
     if unit=='dBm':
-        return 10**(power_watts/10.) /1000.
+        return 10*np.log(power_watts*1000.)
     elif unit=='watt':
         return power_watts
         
-def get_photons_in_resonator(power, fitresults,unit='dBm'):
+def get_photons_in_resonator(power, fitresults, unit='dBm'):
 		'''
 		returns the average number of photons
 		for a given power (defaul unit is 'dbm')
@@ -76,9 +76,160 @@ def get_photons_in_resonator(power, fitresults,unit='dBm'):
 		if fitresults!={}:
 			if unit=='dBm':
 				power = 10**(power/10.) /1000.
-			return power / get_single_photon_limit(fitresults, unit)
+			return power / get_single_photon_limit(fitresults, unit='watt')
+        
+def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz'):
+    if freq_unit=='Hz':
+        freq = freq/1e9
+    fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
+    axes[0].plot(freq, abs(data), marker='.', ms=2, ls='')
+    axes[0].plot(freq, abs(fit_result.best_fit))
+    myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21|')
+    axes[1].plot(freq, np.angle(data, deg=True), marker='.', ms=2, ls='')
+    axes[1].plot(freq, np.angle(fit_result.best_fit, deg=True))
+    myplt.format_plot(axes[1],xlabel='f (GHz)',ylabel='S21 (°)')
+    axes[2].plot(data.real, data.imag, marker='.', ms=2, ls='')
+    axes[2].plot(fit_result.best_fit.real, fit_result.best_fit.imag)
+    myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
+    for ax in axes:
+        ax.set_aspect(1/ax.get_data_ratio())
+    return fig, ax
+        
+def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notch', method='resonator_tools', plot=False):
+    """
+    Function to fit resonances of a power sweep.
 
-def fit_power_sweep(data, freq, power, freq_range=None, attenuation=80, port_type='notch', method='resonator_tools', plot=False):
+    Parameters
+    ----------
+    data : ndarray
+        Complex data of the measured signal.
+    freq : ndarray
+        List of the measured frequencies.
+    freq_range : list, optional
+        Minimum and maximum frequency that will be considered for the fit.
+    power : ndarray, optional
+        Input power in dBm. Default is -140 dBm.
+    port_type : str, optional
+        Type of the resonator port. Choose 'notch' or 'reflection.
+        The default is 'notch'.
+    method : str, optional
+        Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    plot : boolean, optional
+        Enable option to plot the fit. The default is False.
+
+    Returns
+    -------
+    fitReport : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+
+    """
+    if method == 'resonator_tools':
+        return _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,plot)
+    elif method == 'lmfit':
+        return _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,plot)
+    else:
+        raise ValueError("This method is not supported. Use 'resonator_tools' or 'lmfit'")
+
+def _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,plot):
+    # define port type
+    if port_type == 'notch':
+        port = circuit.notch_port()
+    elif port_type == 'reflection':
+        port = circuit.reflection_port()
+    else:
+        print("This port type is not supported. Use 'notch', 'reflection' or 'transmission'")
+    # cut and fit data
+    port.add_data(freq,data)
+    if freq_range:
+        port.cut_data(*freq_range)
+    # port.autofit(fr_guess=center_freq[k])
+    port.autofit()
+    if plot == True:
+        port.plotall()
+    # add fitting results to the dictionary
+    fit_report = {}
+    if port_type == 'notch':
+        fit_report["Qi"] = port.fitresults["Qi_dia_corr"]
+        fit_report["Qi_err"] = port.fitresults["Qi_dia_corr_err"]
+        fit_report["Qc"] = port.fitresults["Qc_dia_corr"]
+        fit_report["Qc_err"] = port.fitresults["absQc_err"]
+    else:
+        fit_report["Qi"] = port.fitresults["Qi"]
+        fit_report["Qi_err"] = port.fitresults["Qi_err"]
+        fit_report["Qc"] = port.fitresults["Qc"]
+        fit_report["Qc_err"] = port.fitresults["Qc_err"]
+    fit_report["Ql"] = port.fitresults["Ql"]
+    fit_report["Ql_err"] = port.fitresults["Ql_err"]
+    fit_report["Nph"] = port.get_photons_in_resonator(power,unit='dBm')
+    fit_report["single_photon_W"] = port.get_single_photon_limit(unit='watt')
+    fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm')
+    fit_report["fr"] = port.fitresults["fr"]
+    fit_report['fitresults'] = port.fitresults
+    return fit_report
+
+def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,plot):
+    # Define port type
+    if port_type == 'notch':
+        model_func = S21_resonator_notch
+    elif port_type == 'reflection':
+        model_func = S11_resonator_reflection
+    else:
+        print("This port type is not supported. Supported types are 'notch' or 'reflection'")
+
+    data_to_fit = data
+    if freq_range:
+        freq_slice = myplt.find_slice(freq, freq_range)
+        freq_to_fit = freq[freq_slice]
+        data_to_fit = data_to_fit[freq_slice]
+    else:
+        freq_to_fit = freq
+    fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit)
+    fixed_params = []
+
+    # define the initial guesses for the parameters
+    guesses = {}
+    guesses['fr'] = fr
+    guesses['kappa'] = kappa
+    guesses['kappa_c'] = kappa/2
+    guesses['a'] = a
+    guesses['alpha']= alpha
+    guesses['delay'] = delay
+
+    # create the lmfit.Parameters object and adjust some settings
+    params=lmfit.Parameters() # object
+    signature = inspect.signature(model_func)
+    parameter_names = [param.name for param in signature.parameters.values() if param.name not in ['fdrive']]
+    for name in parameter_names:
+        params.add(name, value=guesses[name], vary=True)
+    for name in fixed_params:
+        params[name].vary = False
+    params.add('kappa_i', expr='kappa-kappa_c')
+    params.add('Ql', expr='fr/(kappa)')
+    params.add('Qc', expr='fr/kappa_c')
+    params.add('Qi', expr='fr/(kappa-kappa_c)')
+
+    for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
+        params[param_name].min = 0
+
+    # fit the data
+    model = lmfit.Model(model_func, independent_vars=['fdrive'])
+    result = model.fit(data_to_fit, params, fdrive=freq_to_fit, scale_covar=False)
+    par = result.params
+    fit_report = {}
+    fit_report["fr"] = par['fr'].value
+    for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
+        fit_report[param_name] = par[param_name].value
+        fit_report[param_name+'_err'] = par[param_name].stderr
+    fit_report["Nph"] = get_photons_in_resonator(power, result.best_values ,unit='dBm')
+    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values, unit='watt')
+    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values, unit='dBm')
+    fit_report['fitresults'] = result
+    
+    if plot:
+        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit='Hz')
+    return fit_report
+
+def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenuation=80, port_type='notch', method='resonator_tools', plot=False):
     """
     Function to fit resonances of a power sweep.
 
@@ -129,14 +280,17 @@ def fit_power_sweep(data, freq, power, freq_range=None, attenuation=80, port_typ
         'fitresults': [None]*n_powers,
         }
     if method == 'resonator_tools':
-        return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,attenuation,port_type,fit_report,plot)
+        return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot)
     elif method == 'lmfit':
-        return _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_report,plot)
+        return _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot)
     else:
-        print("This method is not supported. Use 'resonator_tools' or 'lmfit'")
+        raise ValueError(f"The method '{method}' is not supported. Use 'resonator_tools' or 'lmfit'")
     
-def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,attenuation,port_type,fit_report,plot):
+def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot):
     for k,pwr in enumerate(power):
+        if power_range:
+            if (pwr < power_range[0]) or (pwr > power_range[1]):
+                continue
         # define port type
         if port_type == 'notch':
             port = circuit.notch_port()
@@ -173,8 +327,11 @@ def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,attenuation,port
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
 
-def _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_report,plot):
+def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot):
     for k,pwr in enumerate(power):
+        if power_range:
+            if (pwr < power_range[0]) or (pwr > power_range[1]):
+                continue
         # Define port type
         if port_type == 'notch':
             model_func = S21_resonator_notch
@@ -232,68 +389,142 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_
         fit_report['fitresults'][k] = result
         
         if plot:
-            fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
-            # fig.set_size_inches(18/2.54, 5/2.54)
-            axes[0].plot(freq_to_fit/1e9, abs(data_to_fit), marker='.', ms=2, ls='')
-            axes[0].plot(freq_to_fit/1e9, abs(result.best_fit))
-            myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21|')
-            axes[1].plot(freq_to_fit/1e9, np.angle(data_to_fit, deg=True), marker='.', ms=2, ls='')
-            axes[1].plot(freq_to_fit/1e9, np.angle(result.best_fit, deg=True))
-            myplt.format_plot(axes[1],xlabel='f (GHz)',ylabel='S21 (°)')
-            axes[2].plot(data_to_fit.real, data_to_fit.imag, marker='.', ms=2, ls='')
-            axes[2].plot(result.best_fit.real, result.best_fit.imag)
-            myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
-            for ax in axes:
-                ax.set_aspect(1/ax.get_data_ratio())
+            print(f'Power = {pwr} dBm')
+            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit='Hz')
+            plt.show()
     return fit_report
 
-def fit_flux_sweep(data,freq,x,center_freq,span,power,attenuation=80,port_type='notch',plot=False):
-    fitReport = {
-        "Qi" : [],
-        "Qi_err" : [],
-        "Qc" : [],
-        "Qc_err" : [],
-        "Ql" : [],
-        "Ql_err" : [],
-        "Nph" : [],
-        "fr" : [],
-        # "guessed_freq": freq[center_freq]
+def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,method='resonator_tools',port_type='notch',plot=False):
+    n_fields = len(field)
+    fit_report = {
+        "fr" : np.array([np.nan]*n_fields),
+        "kappa_i" : np.array([np.nan]*n_fields),
+        "kappa_i_err" : np.array([np.nan]*n_fields),
+        "kappa_c" : np.array([np.nan]*n_fields),
+        "kappa_c_err" : np.array([np.nan]*n_fields),
+        "kappa" : np.array([np.nan]*n_fields),
+        "kappa_err" : np.array([np.nan]*n_fields),
+        "Qi" : np.array([np.nan]*n_fields),
+        "Qi_err" : np.array([np.nan]*n_fields),
+        "Qc" : np.array([np.nan]*n_fields),
+        "Qc_err" : np.array([np.nan]*n_fields),
+        "Ql" : np.array([np.nan]*n_fields),
+        "Ql_err" : np.array([np.nan]*n_fields),
+        "Nph" : np.array([np.nan]*n_fields),
+        "single_photon_W" : np.array([np.nan]*n_fields),
+        "single_photon_dBm" : np.array([np.nan]*n_fields),
+        'fitresults': [None]*n_fields,
         }
-    try: iter(center_freq)
-    except TypeError:
-        center_freq = [center_freq for ii in range(len(x))]
-        
-    for k in range(len(x)):
+    if method == 'resonator_tools':
+        return _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,power,port_type,fit_report,plot)
+    elif method == 'lmfit':
+        return _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,power,port_type,fit_report,plot)
+    
+def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,plot):
+    for k,cfreq in enumerate(center_freqs):
+        if field_range:
+            if (field < field_range[0]) or (field > field_range[1]):
+                continue
+        # define port type
         if port_type == 'notch':
             port = circuit.notch_port()
         elif port_type == 'reflection':
             port = circuit.reflection_port()
         else:
             print("This port type is not supported. Use 'notch', 'reflection' or 'transmission'")
-        # port.add_data(freq[center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)], data[k][center_freq-int(spanPoints/2):center_freq+int(spanPoints/2)])
+        # cut and fit data
         port.add_data(freq,data[k])
-        port.cut_data(center_freq[k]-span/2,center_freq[k]+span/2)
-        # port.autofit(fr_guess=center_freq[k])
+        port.cut_data(cfreq-span/2,cfreq+span/2)
+        # port.autofit(fr_guess=cfreq)
         port.autofit()
         if plot == True:
+            print(f'Field = {field*1e3} mT')
             port.plotall()
-        #adding fitting results to the dictionary
+        # add fitting results to the dictionary
         if port_type == 'notch':
-            fitReport["Qi"].append(port.fitresults["Qi_dia_corr"])
-            fitReport["Qi_err"].append(port.fitresults["Qi_dia_corr_err"])
-            fitReport["Qc"].append(port.fitresults["Qc_dia_corr"])
-            fitReport["Qc_err"].append(port.fitresults["absQc_err"])
+            fit_report["Qi"][k] = port.fitresults["Qi_dia_corr"]
+            fit_report["Qi_err"][k] = port.fitresults["Qi_dia_corr_err"]
+            fit_report["Qc"][k] = port.fitresults["Qc_dia_corr"]
+            fit_report["Qc_err"][k] = port.fitresults["absQc_err"]
         else:
-            fitReport["Qi"].append(port.fitresults["Qi"])
-            fitReport["Qi_err"].append(port.fitresults["Qi_err"])
-            fitReport["Qc"].append(port.fitresults["Qc"])
-            fitReport["Qc_err"].append(port.fitresults["Qc_err"])
-        fitReport["Ql"].append(port.fitresults["Ql"])
-        fitReport["Ql_err"].append(port.fitresults["Ql_err"])
-        fitReport["Nph"].append(port.get_photons_in_resonator(power-attenuation,unit='dBm'))
-        fitReport["fr"].append(port.fitresults["fr"])
-        # fitReport["guessed_freq"].append()
-    return fitReport
+            fit_report["Qi"][k] = port.fitresults["Qi"]
+            fit_report["Qi_err"][k] = port.fitresults["Qi_err"]
+            fit_report["Qc"][k] = port.fitresults["Qc"]
+            fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
+        fit_report["Ql"][k] = port.fitresults["Ql"]
+        fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
+        fit_report["Nph"][k] = port.get_photons_in_resonator(power,unit='dBm')
+        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
+        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
+        fit_report["fr"][k] = port.fitresults["fr"]
+        fit_report['fitresults'][k] = port.fitresults
+    return fit_report
+
+def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,plot):
+    for k,cfreq in enumerate(center_freqs):
+        if field_range:
+            if (field < field_range[0]) or (field > field_range[1]):
+                continue
+        # Define port type
+        if port_type == 'notch':
+            model_func = S21_resonator_notch
+        elif port_type == 'reflection':
+            model_func = S11_resonator_reflection
+        else:
+            print("This port type is not supported. Supported types are 'notch' or 'reflection'")
+        
+        data_to_fit = data[k]
+        freq_slice = myplt.find_slice(freq, [cfreq-span/2,cfreq+span/2])
+        freq_to_fit = freq[freq_slice]
+        data_to_fit = data_to_fit[freq_slice]
+
+        fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit)
+
+        fixed_params = []
+        # define the initial guesses for the parameters
+        guesses = {}
+        guesses['fr'] = fr
+        guesses['kappa'] = kappa
+        guesses['kappa_c'] = kappa/2
+        guesses['a'] = a
+        guesses['alpha']= alpha
+        guesses['delay'] = delay
+
+        # create the lmfit.Parameters object and adjust some settings
+        params=lmfit.Parameters() # object
+        signature = inspect.signature(model_func)
+        parameter_names = [param.name for param in signature.parameters.values() if param.name not in ['fdrive']]
+        for name in parameter_names:
+            params.add(name, value=guesses[name], vary=True)
+        for name in fixed_params:
+            params[name].vary = False
+        params.add('kappa_i', expr='kappa-kappa_c')
+        params.add('Ql', expr='fr/(kappa)')
+        params.add('Qc', expr='fr/kappa_c')
+        params.add('Qi', expr='fr/(kappa-kappa_c)')
+
+        for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
+            params[param_name].min = 0
+
+        # fit the data
+        model = lmfit.Model(model_func, independent_vars=['fdrive'])
+        result = model.fit(data_to_fit, params, fdrive=freq_to_fit, scale_covar=False)
+        par = result.params
+        fit_report["fr"][k] = par['fr'].value
+        for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
+            fit_report[param_name][k] = par[param_name].value
+            fit_report[param_name+'_err'][k] = par[param_name].stderr
+        fit_report["Nph"][k] = get_photons_in_resonator(power, result.best_values ,unit='dBm')
+        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, unit='watt')
+        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, unit='dBm')
+        fit_report['fitresults'][k] = result
+        
+        if plot:
+            print(f'Field = {field*1e3} mT')
+            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit='Hz')
+            plt.show()
+    return fit_report
+
 
 def fit_multi_peak(data,freq,center_freqs,span,power,attenuation=80,port_type='notch',plot=False):
     fitReport = {
@@ -337,26 +568,6 @@ def fit_multi_peak(data,freq,center_freqs,span,power,attenuation=80,port_type='n
         fitReport["fr"].append(port.fitresults["fr"])
     return fitReport
 
-def plot_QvsP(fit,label='',filename=False,file_res=300,log=True,**kwargs):
-    fig, ax = plt.subplots(1)
-    fig.dpi = file_res
-    if log:
-        ax.loglog()
-    else:
-        ax.semilogx()
-    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
-    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
-    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
-    ax.legend()
-    ax.set_xlabel('photon number')
-    ax.set_ylabel('Q')
-    ax.grid()
-    fig.suptitle(label)
-    fig.tight_layout()
-    if filename:
-        fig.savefig(filename,dpi=file_res)
-    return fig,ax
-
 def fit_correction(fitReport, threshold = 1):
     # create empty dictionary
     fitReportCorr = {}
@@ -374,6 +585,291 @@ def fit_correction(fitReport, threshold = 1):
                 fitReportCorr[key] = np.append(fitReportCorr[key], fitReport[key][k])
             good_fit_idx.append(k)
     return fitReportCorr, good_fit_idx
+
+def plot_QvsP(fit_report,label='',log_y=True,threshold=None,**kwargs):
+    """
+    Plots the quality factors (Qi, Qc, Ql) versus photon number (Nph) with error bars.
+
+    Parameters:
+    -----------
+    fit_report : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+    label : str, optional
+        Title of the plot. Default is an empty string.
+    log_y : bool, optional
+        If True, use a logarithmic scale for the y-axis. Default is True.
+    threshold : float, optional
+        Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+        using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the errorbar function.
+
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axes object containing the plot.
+    """
+    if threshold is not None:
+        fit, field_idxs = fit_correction(fit_report, threshold)
+    else:
+        fit = fit_report
+    fig, ax = plt.subplots(1)
+    if log_y:
+        ax.loglog()
+    else:
+        ax.semilogx()
+    ax.errorbar(fit['Nph'],fit['Qi'],yerr=fit['Qi_err'],label='$Q_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['Qc'],yerr=fit['Qc_err'],label='$Q_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['Ql'],yerr=fit['Ql_err'],label='$Q_{l}$',fmt = "o",**kwargs)
+    ax.legend()
+    ax.set_xlabel('photon number')
+    ax.set_ylabel('Q')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    return fig,ax
+
+def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+    """
+    Plots the quality factors (kappa_i, kappa_c, kappa_l) versus photon number (Nph) with error bars.
+
+    Parameters:
+    -----------
+    fit_report : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+    label : str, optional
+        Title of the plot. Default is an empty string.
+    log_y : bool, optional
+        If True, use a logarithmic scale for the y-axis. Default is True.
+    threshold : float, optional
+        Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+        using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+    kappa_scaling : float, optional
+        Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the errorbar function.
+
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axes object containing the plot.
+    """
+    if threshold is not None:
+        fit, field_idxs = fit_correction(fit_report, threshold)
+    else:
+        fit = fit_report
+    fig, ax = plt.subplots(1)
+    if log_y:
+        ax.loglog()
+    else:
+        ax.semilogx()
+    ax.errorbar(fit['Nph'],fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.legend()
+    ax.set_xlabel('photon number')
+    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    return fig,ax
+
+def plot_QvsB(fit_report,field,label='',log_y=True,threshold=None,**kwargs):
+    """
+    Plots the quality factors (Qi, Qc, Ql) with error bars versus magnetic field.
+
+    Parameters:
+    -----------
+    fit_report : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+    field : ndarray
+        List of the magnetic field values.
+    label : str, optional
+        Title of the plot. Default is an empty string.
+    log_y : bool, optional
+        If True, use a logarithmic scale for the y-axis. Default is True.
+    threshold : float, optional
+        Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+        using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the errorbar function.
+
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axes object containing the plot.
+    """
+    if threshold is not None:
+        fit, field_idxs = fit_correction(fit_report, threshold)
+        field = np.array([field[idx] for idx in field_idxs])
+    else:
+        fit = fit_report
+        field = field
+    fig, ax = plt.subplots(1)
+    if log_y:
+        ax.semilogy()
+    ax.errorbar(field*1e3,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
+    ax.legend()
+    ax.set_xlabel('Magnetic field (mT)')
+    ax.set_ylabel('Q')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    return fig,ax
+
+def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+    """
+    Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
+
+    Parameters:
+    -----------
+    fit_report : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+    field : ndarray
+        List of the magnetic field values.
+    label : str, optional
+        Title of the plot. Default is an empty string.
+    log_y : bool, optional
+        If True, use a logarithmic scale for the y-axis. Default is True.
+    threshold : float, optional
+        Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+        using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+    kappa_scaling : float, optional
+        Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the errorbar function.
+
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axes object containing the plot.
+    """
+    if threshold is not None:
+        fit, field_idxs = fit_correction(fit_report, threshold)
+        field = np.array([field[idx] for idx in field_idxs])
+    else:
+        fit = fit_report
+        field = field
+    fig, ax = plt.subplots(1)
+    if log_y:
+        ax.semilogy()
+    ax.errorbar(field*1e3,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.legend()
+    ax.set_xlabel('Magnetic field (mT)')
+    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    return fig,ax
+
+def plot_Qvsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,**kwargs):
+    """
+    Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
+
+    Parameters:
+    -----------
+    fit_report : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+    label : str, optional
+        Title of the plot. Default is an empty string.
+    log_y : bool, optional
+        If True, use a logarithmic scale for the y-axis. Default is True.
+    threshold : float, optional
+        Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+        using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+    kappa_scaling : float, optional
+        Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the errorbar function.
+
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axes object containing the plot.
+    """
+    if threshold is not None:
+        fit, field_idxs = fit_correction(fit_report, threshold)
+        frs = fit['fr'][field_idxs]
+    else:
+        fit = fit_report
+        frs = fit['fr']
+    fig, ax = plt.subplots(1)
+    if log_y:
+        ax.semilogy()
+    ax.errorbar(frs*fr_scaling,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
+    ax.legend()
+    ax.set_xlabel('$f_r$ (GHz)')
+    ax.set_ylabel('Q')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    return fig,ax
+
+def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,kappa_scaling=1e-6,**kwargs):
+    """
+    Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
+
+    Parameters:
+    -----------
+    fit_report : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+    label : str, optional
+        Title of the plot. Default is an empty string.
+    log_y : bool, optional
+        If True, use a logarithmic scale for the y-axis. Default is True.
+    threshold : float, optional
+        Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+        using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+    kappa_scaling : float, optional
+        Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
+    kappa_scaling : float, optional
+        Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the errorbar function.
+
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axes object containing the plot.
+    """
+    if threshold is not None:
+        fit, field_idxs = fit_correction(fit_report, threshold)
+        frs = fit['fr'][field_idxs]
+    else:
+        fit = fit_report
+        frs = fit['fr']
+    fig, ax = plt.subplots(1)
+    if log_y:
+        ax.semilogy()
+    ax.errorbar(frs*fr_scaling,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.legend()
+    ax.set_xlabel('Magnetic field (mT)')
+    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.grid()
+    fig.suptitle(label)
+    fig.tight_layout()
+    return fig,ax
+
 
 #%% legacy functions
 
