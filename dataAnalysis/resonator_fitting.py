@@ -185,8 +185,12 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_
 
         data_to_fit = data[k]
         if freq_range:
-            freq = freq[freq_range[0]:freq_range[1]]
-        fr, kappa, a, alpha, delay = guess_resonator_params(freq, data_to_fit)
+            freq_slice = myplt.find_slice(freq, freq_range)
+            freq_to_fit = freq[freq_slice]
+            data_to_fit = data_to_fit[freq_slice]
+        else:
+            freq_to_fit = freq
+        fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit)
         fixed_params = []
 
         # define the initial guesses for the parameters
@@ -216,7 +220,7 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_
 
         # fit the data
         model = lmfit.Model(model_func, independent_vars=['fdrive'])
-        result = model.fit(data_to_fit, params, fdrive=freq, scale_covar=False)
+        result = model.fit(data_to_fit, params, fdrive=freq_to_fit, scale_covar=False)
         par = result.params
         fit_report["fr"][k] = par['fr'].value
         for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
@@ -229,16 +233,18 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_
         
         if plot:
             fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
-            fig.set_size_inches(18/2.54, 5/2.54)
-            axes[0].plot(freq, abs(data_to_fit)**2, marker='.', ms=2, ls='')
-            axes[0].plot(freq, abs(result.best_fit)**2)
-            myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21| (dB)')
-            axes[1].plot(freq, np.angle(data_to_fit, deg=True), marker='.', ms=2, ls='')
-            axes[1].plot(freq, np.angle(result.best_fit, deg=True))
+            # fig.set_size_inches(18/2.54, 5/2.54)
+            axes[0].plot(freq_to_fit/1e9, abs(data_to_fit), marker='.', ms=2, ls='')
+            axes[0].plot(freq_to_fit/1e9, abs(result.best_fit))
+            myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21|')
+            axes[1].plot(freq_to_fit/1e9, np.angle(data_to_fit, deg=True), marker='.', ms=2, ls='')
+            axes[1].plot(freq_to_fit/1e9, np.angle(result.best_fit, deg=True))
             myplt.format_plot(axes[1],xlabel='f (GHz)',ylabel='S21 (°)')
             axes[2].plot(data_to_fit.real, data_to_fit.imag, marker='.', ms=2, ls='')
             axes[2].plot(result.best_fit.real, result.best_fit.imag)
             myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
+            for ax in axes:
+                ax.set_aspect(1/ax.get_data_ratio())
     return fit_report
 
 def fit_flux_sweep(data,freq,x,center_freq,span,power,attenuation=80,port_type='notch',plot=False):
