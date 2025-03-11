@@ -6,6 +6,7 @@ import qcodes as qc
 from resonator_tools import circuit
 import lmfit
 from .base import DataSet
+from .resonator_fitting import fit_correction, fit_power_sweep, fit_flux_sweep
 
 def S21_resonator_notch(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay, phi0):
         delta_r = fdrive - fr
@@ -19,23 +20,6 @@ def S11_resonator_reflection(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay):
     environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
     return S11 * environment
 
-def fit_correction(fitReport, threshold = 1):
-    # create empty dictionary
-    fitReportCorr = {}
-    good_fit_idx = []
-    for key in fitReport.keys():
-        fitReportCorr[key] = np.array([])
-    
-    # add fit result only if the all the constrains pass
-    for k in range(len(fitReport["Qi"])):
-        bool_Qi = fitReport["Qi_err"][k] < threshold*fitReport["Qi"][k]
-        bool_Qc = fitReport["Qc_err"][k] < threshold*fitReport["Qc"][k]
-        bool_Ql = fitReport["Ql_err"][k] < threshold*fitReport["Ql"][k]
-        if bool_Qi and bool_Qc and bool_Ql:
-            for key in fitReportCorr.keys():
-                fitReportCorr[key] = np.append(fitReportCorr[key], fitReport[key][k])
-            good_fit_idx.append(k)
-    return fitReportCorr, good_fit_idx
 
 class DataSetVNA(DataSet):
     """
@@ -280,8 +264,37 @@ class PowerScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
+    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, method='resonator_tools', do_plots=True):
+        """
+        Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
-    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, do_plots=True):
+        Args:
+            freq_range (tuple, optional): Frequency range to consider for analysis. Defaults to None.
+            power_range (tuple, optional): Power range to consider for analysis. Defaults to None.
+            attenuation (float, optional): Expected attenuation in dB between the instrument output and the resonator port. Defaults to 0.
+            port_type (str, optional): Type of port to use for analysis. Supported values are 'notch' or 'reflection'. Defaults to 'notch'.
+            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to False.
+            method (str, optional): Method to use for fitting. Supported values are 'resonator_tools' or 'lmfit'. Defaults to 'resonator_tools'.
+            do_plots (bool, optional): Flag indicating whether to generate plots. Defaults to True.
+
+        Returns:
+            None
+        
+        Attributes:
+            Dictionary containing the results of the fit as np.arrays for each parameter.
+        """
+        power = self.power
+        if normalized:
+            cData = self.cData_norm
+        else:
+            cData = self.cData
+        if power_range:
+            power_slice = self.find_slice(self.power, power_range)
+            power = power[power_slice]
+            cData = cData[:,power_slice]
+        self.fit_report = fit_power_sweep(cData.T, self.freq, power, freq_range, attenuation, port_type, method, do_plots)
+
+    def _analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=False, do_plots=True):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 

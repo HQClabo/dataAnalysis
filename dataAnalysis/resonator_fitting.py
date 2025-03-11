@@ -6,13 +6,79 @@ Created on Tue Apr  5 13:43:03 2022
 """
 
 from scipy.signal import find_peaks
+from scipy.stats import linregress
+import scipy.constants as const
 import numpy as np
+import lmfit
 from resonator_tools import circuit
 import matplotlib.pyplot as plt
+import inspect
+import dataAnalysis.plotting_functions as myplt
 
 #%% functions for resonator fitting
 
-def fit_power_sweep(data, freq, center_freq, span, power, attenuation=80, port_type='notch', plot=False):
+def S21_resonator_notch(fdrive, fr, kappa, kappa_c, a, alpha, delay, phi0):
+        delta_r = fdrive - fr
+        S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa))
+        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+        return S21 * environment
+
+def S11_resonator_reflection(fdrive, fr, kappa, kappa_c, a, alpha, delay):
+    delta_r = fdrive - fr
+    S11 = 2*kappa_c / (kappa + 2*1j*delta_r) - 1
+    environment = a * np.exp(1j * (alpha - 2*np.pi*fdrive*delay))
+    return S11 * environment
+
+def guess_resonator_params(f, data, fraction=0.1, peak_direction=-1):
+    # do a Lorentzian fit to the magnitude of complex to get the resonance frequency and linewidth
+    model = lmfit.models.LorentzianModel() + lmfit.models.ConstantModel()
+    model.set_param_hint('center', value=f.mean(), vary=True)
+    sigma = f.ptp()/10
+    model.set_param_hint('sigma', value=sigma, vary=True)
+    model.set_param_hint('amplitude', value=peak_direction*abs(data).ptp() * sigma*np.pi, vary=True)
+    model.set_param_hint('c', value=np.median(abs(data)), vary=True)
+    result = model.fit(data=abs(data), x=f)
+    fr = result.best_values['center']
+    kappa = result.best_values['sigma'] * 2
+    a = result.best_values['c']
+
+    # linear fit of first and last 10% of the unwrapped phase
+    phase = np.unwrap(np.angle(data))
+    first = int(len(f)//(1/fraction))
+    last = -int(len(f)//(1/fraction))
+    fit1 = linregress(f[:first], phase[:first])
+    fit2 = linregress(f[last:], phase[last:])
+    delay = -(fit1.slope + fit2.slope) / 2 / (2*np.pi)
+    alpha = (fit1.intercept + 2*np.pi*delay*f[0] + np.pi) % (2*np.pi) - np.pi
+    return fr, kappa, a, alpha, delay
+
+def get_single_photon_limit(fitresults, unit='dBm'):
+    '''
+    returns the amout of power in units of W necessary
+    to maintain one photon on average in the cavity
+    unit can be 'dbm' or 'watt'
+    '''
+    fr = fitresults['fr']
+    k_c = fitresults['kappa_c']
+    k_i = fitresults['kappa']-fitresults['kappa_c']
+    power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*(k_c+k_i)**2))
+    if unit=='dBm':
+        return 10**(power_watts/10.) /1000.
+    elif unit=='watt':
+        return power_watts
+        
+def get_photons_in_resonator(power, fitresults,unit='dBm'):
+		'''
+		returns the average number of photons
+		for a given power (defaul unit is 'dbm')
+		unit can be 'dBm' or 'watt'
+		'''
+		if fitresults!={}:
+			if unit=='dBm':
+				power = 10**(power/10.) /1000.
+			return power / get_single_photon_limit(fitresults, unit)
+
+def fit_power_sweep(data, freq, power, freq_range=None, attenuation=80, port_type='notch', method='resonator_tools', plot=False):
     """
     Function to fit resonances of a power sweep.
 
@@ -22,39 +88,55 @@ def fit_power_sweep(data, freq, center_freq, span, power, attenuation=80, port_t
         Complex data of dimension (n_power,n_freq).
     freq : ndarray
         List of the measured frequencies.
-    center_freq : number or array-like
-        Center frequency that will be used as an initial guess for the fit.
-        Can be passed as a number to use the same for all powers or as a list
-        to use individual values for each power.
-    span : array-like
-        Frequency span around center_freq that will be considered for the fit.
     power : ndarray
         List of the different powers applied.
+    freq_range : list, optional
+        Minimum and maximum frequency that will be considered for the fit.
     attenuation : number, optional
         Total estimated line attenuation. The default is 80.
     port_type : str, optional
         Type of the resonator port. Choose 'notch' or 'reflection.
         The default is 'notch'.
+    method : str, optional
+        Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
     plot : boolean, optional
         Enable option to plot the individual fits. The default is False.
 
     Returns
     -------
     fitReport : dict
-        Dictionary containing the results of the fit as lists for each parameter.
+        Dictionary containing the results of the fit as np.arrays for each parameter.
 
     """
-    fitReport = {
-        "Qi" : [],
-        "Qi_err" : [],
-        "Qc" : [],
-        "Qc_err" : [],
-        "Ql" : [],
-        "Ql_err" : [],
-        "Nph" : [],
-        "fr" : [],
+    n_powers = len(power)
+    fit_report = {
+        "fr" : np.array([np.nan]*n_powers),
+        "kappa_i" : np.array([np.nan]*n_powers),
+        "kappa_i_err" : np.array([np.nan]*n_powers),
+        "kappa_c" : np.array([np.nan]*n_powers),
+        "kappa_c_err" : np.array([np.nan]*n_powers),
+        "kappa" : np.array([np.nan]*n_powers),
+        "kappa_err" : np.array([np.nan]*n_powers),
+        "Qi" : np.array([np.nan]*n_powers),
+        "Qi_err" : np.array([np.nan]*n_powers),
+        "Qc" : np.array([np.nan]*n_powers),
+        "Qc_err" : np.array([np.nan]*n_powers),
+        "Ql" : np.array([np.nan]*n_powers),
+        "Ql_err" : np.array([np.nan]*n_powers),
+        "Nph" : np.array([np.nan]*n_powers),
+        "single_photon_W" : np.array([np.nan]*n_powers),
+        "single_photon_dBm" : np.array([np.nan]*n_powers),
+        'fitresults': [None]*n_powers,
         }
-    for k,i in enumerate(power):
+    if method == 'resonator_tools':
+        return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,attenuation,port_type,fit_report,plot)
+    elif method == 'lmfit':
+        return _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_report,plot)
+    else:
+        print("This method is not supported. Use 'resonator_tools' or 'lmfit'")
+    
+def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,attenuation,port_type,fit_report,plot):
+    for k,pwr in enumerate(power):
         # define port type
         if port_type == 'notch':
             port = circuit.notch_port()
@@ -64,27 +146,100 @@ def fit_power_sweep(data, freq, center_freq, span, power, attenuation=80, port_t
             print("This port type is not supported. Use 'notch', 'reflection' or 'transmission'")
         # cut and fit data
         port.add_data(freq,data[k])
-        port.cut_data(center_freq[k]-span/2,center_freq[k]+span/2)
+        if freq_range:
+            port.cut_data(*freq_range)
         # port.autofit(fr_guess=center_freq[k])
         port.autofit()
         if plot == True:
+            print(f'Power = {pwr} dBm')
             port.plotall()
         # add fitting results to the dictionary
         if port_type == 'notch':
-            fitReport["Qi"].append(port.fitresults["Qi_dia_corr"])
-            fitReport["Qi_err"].append(port.fitresults["Qi_dia_corr_err"])
-            fitReport["Qc"].append(port.fitresults["Qc_dia_corr"])
-            fitReport["Qc_err"].append(port.fitresults["absQc_err"])
+            fit_report["Qi"][k] = port.fitresults["Qi_dia_corr"]
+            fit_report["Qi_err"][k] = port.fitresults["Qi_dia_corr_err"]
+            fit_report["Qc"][k] = port.fitresults["Qc_dia_corr"]
+            fit_report["Qc_err"][k] = port.fitresults["absQc_err"]
         else:
-            fitReport["Qi"].append(port.fitresults["Qi"])
-            fitReport["Qi_err"].append(port.fitresults["Qi_err"])
-            fitReport["Qc"].append(port.fitresults["Qc"])
-            fitReport["Qc_err"].append(port.fitresults["Qc_err"])
-        fitReport["Ql"].append(port.fitresults["Ql"])
-        fitReport["Ql_err"].append(port.fitresults["Ql_err"])
-        fitReport["Nph"].append(port.get_photons_in_resonator(i - attenuation,unit='dBm'))
-        fitReport["fr"].append(port.fitresults["fr"])
-    return fitReport
+            fit_report["Qi"][k] = port.fitresults["Qi"]
+            fit_report["Qi_err"][k] = port.fitresults["Qi_err"]
+            fit_report["Qc"][k] = port.fitresults["Qc"]
+            fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
+        fit_report["Ql"][k] = port.fitresults["Ql"]
+        fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
+        fit_report["Nph"][k] = port.get_photons_in_resonator(pwr - attenuation,unit='dBm')
+        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
+        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
+        fit_report["fr"][k] = port.fitresults["fr"]
+        fit_report['fitresults'][k] = port.fitresults
+    return fit_report
+
+def _fit_power_sweep_lmfit(data,freq,power,freq_range,attenuation,port_type,fit_report,plot):
+    for k,pwr in enumerate(power):
+        # Define port type
+        if port_type == 'notch':
+            model_func = S21_resonator_notch
+        elif port_type == 'reflection':
+            model_func = S11_resonator_reflection
+        else:
+            print("This port type is not supported. Supported types are 'notch' or 'reflection'")
+
+        data_to_fit = data[k]
+        if freq_range:
+            freq = freq[freq_range[0]:freq_range[1]]
+        fr, kappa, a, alpha, delay = guess_resonator_params(freq, data_to_fit)
+        fixed_params = []
+
+        # define the initial guesses for the parameters
+        guesses = {}
+        guesses['fr'] = fr
+        guesses['kappa'] = kappa
+        guesses['kappa_c'] = kappa/2
+        guesses['a'] = a
+        guesses['alpha']= alpha
+        guesses['delay'] = delay
+
+        # create the lmfit.Parameters object and adjust some settings
+        params=lmfit.Parameters() # object
+        signature = inspect.signature(model_func)
+        parameter_names = [param.name for param in signature.parameters.values() if param.name not in ['fdrive']]
+        for name in parameter_names:
+            params.add(name, value=guesses[name], vary=True)
+        for name in fixed_params:
+            params[name].vary = False
+        params.add('kappa_i', expr='kappa-kappa_c')
+        params.add('Ql', expr='fr/(kappa)')
+        params.add('Qc', expr='fr/kappa_c')
+        params.add('Qi', expr='fr/(kappa-kappa_c)')
+
+        for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
+            params[param_name].min = 0
+
+        # fit the data
+        model = lmfit.Model(model_func, independent_vars=['fdrive'])
+        result = model.fit(data_to_fit, params, fdrive=freq, scale_covar=False)
+        par = result.params
+        fit_report["fr"][k] = par['fr'].value
+        for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
+            fit_report[param_name][k] = par[param_name].value
+            fit_report[param_name+'_err'][k] = par[param_name].stderr
+        fit_report["Nph"][k] = get_photons_in_resonator(pwr - attenuation, result.best_values ,unit='dBm')
+        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, unit='watt')
+        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, unit='dBm')
+        fit_report['fitresults'][k] = result
+        
+        if plot:
+            fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
+            fig.set_size_inches(18/2.54, 5/2.54)
+            axes[0].plot(freq, abs(data_to_fit)**2, marker='.', ms=2, ls='')
+            axes[0].plot(freq, abs(result.best_fit)**2)
+            myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21| (dB)')
+            axes[1].plot(freq, np.angle(data_to_fit, deg=True), marker='.', ms=2, ls='')
+            axes[1].plot(freq, np.angle(result.best_fit, deg=True))
+            myplt.format_plot(axes[1],xlabel='f (GHz)',ylabel='S21 (°)')
+            axes[2].plot(data_to_fit.real, data_to_fit.imag, marker='.', ms=2, ls='')
+            axes[2].plot(result.best_fit.real, result.best_fit.imag)
+            myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
+    return fit_report
 
 def fit_flux_sweep(data,freq,x,center_freq,span,power,attenuation=80,port_type='notch',plot=False):
     fitReport = {
@@ -199,9 +354,9 @@ def plot_QvsP(fit,label='',filename=False,file_res=300,log=True,**kwargs):
 def fit_correction(fitReport, threshold = 1):
     # create empty dictionary
     fitReportCorr = {}
-    bad_fit_idx = []
+    good_fit_idx = []
     for key in fitReport.keys():
-        fitReportCorr[key] = []
+        fitReportCorr[key] = np.array([])
     
     # add fit result only if the all the constrains pass
     for k in range(len(fitReport["Qi"])):
@@ -210,10 +365,9 @@ def fit_correction(fitReport, threshold = 1):
         bool_Ql = fitReport["Ql_err"][k] < threshold*fitReport["Ql"][k]
         if bool_Qi and bool_Qc and bool_Ql:
             for key in fitReportCorr.keys():
-                fitReportCorr[key].append(fitReport[key][k])
-        else:
-            bad_fit_idx.append(k)
-    return fitReportCorr, bad_fit_idx
+                fitReportCorr[key] = np.append(fitReportCorr[key], fitReport[key][k])
+            good_fit_idx.append(k)
+    return fitReportCorr, good_fit_idx
 
 #%% legacy functions
 
