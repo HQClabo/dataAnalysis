@@ -63,7 +63,7 @@ def get_single_photon_limit(fitresults, unit='dBm'):
     k_i = 2*np.pi*(fitresults['kappa']-fitresults['kappa_c'])
     power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*(k_c+k_i)**2))
     if unit=='dBm':
-        return 10*np.log(power_watts*1000.)
+        return 10*np.log10(power_watts*1000.)
     elif unit=='watt':
         return power_watts
         
