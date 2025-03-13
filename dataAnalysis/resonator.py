@@ -168,7 +168,7 @@ class FrequencyScanVNA(DataSetVNA):
             self.phase = self.phase[freq_slice]
             self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
-    def analyze(self, freq_range=None, power=-140, port_type='notch', normalized=True, method='resonator_tools', do_plots=True):
+    def analyze(self, freq_range=None, power=-140, port_type='notch', normalized=True, method='resonator_tools', freq_unit='Hz', do_plots=True):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
@@ -193,7 +193,7 @@ class FrequencyScanVNA(DataSetVNA):
             except AttributeError:
                 raise Warning("Normalized data not found. Using raw data instead.")
         
-        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq, freq_range, power, port_type, method, do_plots)
+        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq, freq_range, power, port_type, method, freq_unit, do_plots)
 
 
 class PowerScanVNA(DataSetVNA):
@@ -234,7 +234,7 @@ class PowerScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=True, method='resonator_tools', do_plots=True):
+    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=True, method='resonator_tools', freq_unit='Hz', do_plots=True):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
@@ -261,7 +261,7 @@ class PowerScanVNA(DataSetVNA):
             except AttributeError:
                 print("Warning: Normalized data not found. Using raw data instead.")
 
-        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq, power, freq_range, power_range, attenuation, port_type, method, do_plots)
+        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq, power, freq_range, power_range, attenuation, port_type, method, freq_unit, do_plots)
     
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
@@ -364,7 +364,7 @@ class BScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', normalized=False, do_plots=True):
+    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', normalized=False, freq_unit='Hz', do_plots=True):
         """
         Analyze the resonator data over a specified frequency and field range.
         Parameters:
@@ -399,7 +399,7 @@ class BScanVNA(DataSetVNA):
         else:
             cData = self.cData
 
-        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq, self.field, freq_centers, freq_span, field_range, input_power, port_type, do_plots)
+        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq, self.field, freq_centers, freq_span, field_range, input_power, port_type, freq_unit, do_plots)
 
     def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0):
         """
