@@ -52,22 +52,25 @@ def guess_resonator_params(f, data, fraction=0.1, peak_direction=-1):
     alpha = (fit1.intercept + 2*np.pi*delay*f[0] + np.pi) % (2*np.pi) - np.pi
     return fr, kappa, a, alpha, delay
 
+def get_frequency_scaling(freq_unit='Hz'):
+    if freq_unit == 'GHz':
+        return 1e9
+    elif freq_unit == 'MHz':
+        return 1e6
+    elif freq_unit == 'kHz':
+        return 1e3
+    elif freq_unit == 'Hz':
+        return 1
+    else:
+        raise ValueError(f"Unsupported frequency unit: {freq_unit}. Must be one of 'GHz', 'MHz', 'kHz', 'Hz'.")
+
 def get_single_photon_limit(fitresults, freq_unit='Hz', unit='dBm'):
     '''
     returns the amout of power in units of W necessary
     to maintain one photon on average in the cavity
     unit can be 'dbm' or 'watt'
     '''
-    if freq_unit=='GHz':
-        power_scaling = 1e18
-    elif freq_unit=='MHz':
-        power_scaling = 1e12
-    elif freq_unit=='kHz':
-        power_scaling = 1e6
-    elif freq_unit=='Hz':
-        power_scaling = 1
-    else:
-        raise ValueError('freq_unit must be GHz, MHz, kHz or Hz')
+    power_scaling = get_frequency_scaling(freq_unit)**2
     fr = fitresults['fr']
     k_c = 2*np.pi*fitresults['kappa_c']
     k_i = 2*np.pi*(fitresults['kappa']-fitresults['kappa_c'])
@@ -89,8 +92,7 @@ def get_photons_in_resonator(power, fitresults, freq_unit='Hz', unit='dBm'):
 			return power / get_single_photon_limit(fitresults, freq_unit=freq_unit, unit='watt')
         
 def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz'):
-    if freq_unit=='Hz':
-        freq = freq/1e9
+    freq = freq * get_frequency_scaling(freq_unit)/1e9
     fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
     axes[0].plot(freq, abs(data), marker='.', ms=2, ls='')
     axes[0].plot(freq, abs(fit_result.best_fit))
@@ -668,7 +670,7 @@ def plot_QvsP(fit_report,label='',log_y=True,threshold=None,**kwargs):
     fig.tight_layout()
     return fig,ax
 
-def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
     """
     Plots the quality factors (kappa_i, kappa_c, kappa_l) versus photon number (Nph) with error bars.
 
@@ -683,8 +685,8 @@ def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,kappa_scaling=1e
     threshold : float, optional
         Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
         using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-    kappa_scaling : float, optional
-        Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     **kwargs : dict, optional
         Additional keyword arguments passed to the errorbar function.
 
@@ -704,6 +706,7 @@ def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,kappa_scaling=1e
         ax.loglog()
     else:
         ax.semilogx()
+    kappa_scaling = get_frequency_scaling(freq_unit)/1e6
     ax.errorbar(fit['Nph'],fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
     ax.errorbar(fit['Nph'],fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
     ax.errorbar(fit['Nph'],fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
@@ -762,7 +765,7 @@ def plot_QvsB(fit_report,field,label='',log_y=True,threshold=None,**kwargs):
     fig.tight_layout()
     return fig,ax
 
-def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
     """
     Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
 
@@ -779,8 +782,8 @@ def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,kappa_scal
     threshold : float, optional
         Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
         using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-    kappa_scaling : float, optional
-        Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     **kwargs : dict, optional
         Additional keyword arguments passed to the errorbar function.
 
@@ -800,6 +803,7 @@ def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,kappa_scal
     fig, ax = plt.subplots(1)
     if log_y:
         ax.semilogy()
+    kappa_scaling = get_frequency_scaling(freq_unit)/1e6
     ax.errorbar(field*1e3,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
     ax.errorbar(field*1e3,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
     ax.errorbar(field*1e3,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
@@ -811,7 +815,7 @@ def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,kappa_scal
     fig.tight_layout()
     return fig,ax
 
-def plot_Qvsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,**kwargs):
+def plot_Qvsfr(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
     """
     Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
 
@@ -826,8 +830,8 @@ def plot_Qvsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,**k
     threshold : float, optional
         Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
         using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-    kappa_scaling : float, optional
-        Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     **kwargs : dict, optional
         Additional keyword arguments passed to the errorbar function.
 
@@ -847,6 +851,7 @@ def plot_Qvsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,**k
     fig, ax = plt.subplots(1)
     if log_y:
         ax.semilogy()
+    fr_scaling = get_frequency_scaling(freq_unit)/1e9
     ax.errorbar(frs*fr_scaling,fit['Qi'],yerr=fit['Qi_err'],label='$Q_{int}$',fmt = "o",**kwargs)
     ax.errorbar(frs*fr_scaling,fit['Qc'],yerr=fit['Qc_err'],label='$Q_{ext}$',fmt = "o",**kwargs)
     ax.errorbar(frs*fr_scaling,fit['Ql'],yerr=fit['Ql_err'],label='$Q_{load}$',fmt = "o",**kwargs)
@@ -858,7 +863,7 @@ def plot_Qvsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,**k
     fig.tight_layout()
     return fig,ax
 
-def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9,kappa_scaling=1e-6,**kwargs):
+def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
     """
     Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
 
@@ -873,10 +878,8 @@ def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9
     threshold : float, optional
         Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
         using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-    kappa_scaling : float, optional
-        Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
-    kappa_scaling : float, optional
-        Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     **kwargs : dict, optional
         Additional keyword arguments passed to the errorbar function.
 
@@ -896,6 +899,8 @@ def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,fr_scaling=1e-9
     fig, ax = plt.subplots(1)
     if log_y:
         ax.semilogy()
+    fr_scaling = get_frequency_scaling(freq_unit)/1e9
+    kappa_scaling = get_frequency_scaling(freq_unit)/1e6
     ax.errorbar(frs*fr_scaling,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
     ax.errorbar(frs*fr_scaling,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
     ax.errorbar(frs*fr_scaling,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)

@@ -192,8 +192,8 @@ class FrequencyScanVNA(DataSetVNA):
                 cData = self.cData_norm
             except AttributeError:
                 raise Warning("Normalized data not found. Using raw data instead.")
-        
-        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq, freq_range, power, port_type, method, freq_unit, do_plots)
+        freq_scaling = resfit.get_frequency_scaling(freq_unit)
+        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq/freq_scaling, freq_range, power, port_type, method, freq_unit, do_plots)
 
 
 class PowerScanVNA(DataSetVNA):
@@ -253,15 +253,14 @@ class PowerScanVNA(DataSetVNA):
         Attributes:
             Dictionary containing the results of the fit as np.arrays for each parameter.
         """
-        power = self.power
         cData = self.cData
         if normalized:
             try:
                 cData = self.cData_norm
             except AttributeError:
                 print("Warning: Normalized data not found. Using raw data instead.")
-
-        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq, power, freq_range, power_range, attenuation, port_type, method, freq_unit, do_plots)
+        freq_scaling = resfit.get_frequency_scaling(freq_unit)
+        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq/freq_scaling, self.power, freq_range, power_range, attenuation, port_type, method, freq_unit, do_plots)
     
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
@@ -298,7 +297,7 @@ class PowerScanVNA(DataSetVNA):
         """
         return resfit.plot_QvsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
 
-    def plot_kappavsP(self,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+    def plot_kappavsP(self,label='',log_y=True,threshold=None,freq_unit='GHz',**kwargs):
         """
         Plots the quality factors (kappa_i, kappa_c, kappa_l) versus photon number (Nph) with error bars.
 
@@ -311,8 +310,8 @@ class PowerScanVNA(DataSetVNA):
         threshold : float, optional
             Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
             using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-        kappa_scaling : float, optional
-            Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -323,7 +322,7 @@ class PowerScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        return resfit.plot_kappavsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
+        return resfit.plot_kappavsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
 
 
 class BScanVNA(DataSetVNA):
@@ -398,8 +397,8 @@ class BScanVNA(DataSetVNA):
             cData = self.cData_norm
         else:
             cData = self.cData
-
-        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq, self.field, freq_centers, freq_span, field_range, input_power, port_type, freq_unit, do_plots)
+        freq_scaling = resfit.get_frequency_scaling(freq_unit)
+        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq/freq_scaling, self.field, freq_centers, freq_span, field_range, input_power, port_type, freq_unit, do_plots)
 
     def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0):
         """
@@ -468,7 +467,7 @@ class BScanVNA(DataSetVNA):
         """
         return resfit.plot_QvsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, **kwargs)
 
-    def plot_kappavsB(self,label='',log_y=True,threshold=None,kappa_scaling=1e-6,**kwargs):
+    def plot_kappavsB(self,label='',log_y=True,threshold=None,freq_unit='GHz',**kwargs):
         """
         Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
 
@@ -481,8 +480,8 @@ class BScanVNA(DataSetVNA):
         threshold : float, optional
             Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
             using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-        kappa_scaling : float, optional
-            Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -493,9 +492,9 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        return resfit.plot_kappavsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, **kwargs)
+        return resfit.plot_kappavsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
 
-    def plot_Qvsfr(self,label='',log_y=True,threshold=None,fr_scaling=1e-9,**kwargs):
+    def plot_Qvsfr(self,label='',log_y=True,threshold=None,freq_unit='GHz',**kwargs):
         """
         Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
 
@@ -508,8 +507,8 @@ class BScanVNA(DataSetVNA):
         threshold : float, optional
             Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
             using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-        kappa_scaling : float, optional
-            Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -520,9 +519,9 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        return resfit.plot_Qvsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
+        return resfit.plot_Qvsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
 
-    def plot_kappavsfr(self,label='',log_y=True,threshold=None,fr_scaling=1e-9,kappa_scaling=1e-6,**kwargs):
+    def plot_kappavsfr(self,label='',log_y=True,threshold=None,freq_unit='GHz',**kwargs):
         """
         Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
 
@@ -535,10 +534,8 @@ class BScanVNA(DataSetVNA):
         threshold : float, optional
             Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
             using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
-        kappa_scaling : float, optional
-            Scaling factor to properly plot the fr values in GHz. Default is 1e-9.
-        kappa_scaling : float, optional
-            Scaling factor to properly plot the kappa values in MHz. Default is 1e-6.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
         **kwargs : dict, optional
             Additional keyword arguments passed to the errorbar function.
 
@@ -549,4 +546,4 @@ class BScanVNA(DataSetVNA):
         ax : matplotlib.axes._subplots.AxesSubplot
             The axes object containing the plot.
         """
-        return resfit.plot_kappavsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, fr_scaling=fr_scaling, kappa_scaling=kappa_scaling, **kwargs)
+        return resfit.plot_kappavsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
