@@ -516,8 +516,8 @@ class KappaDQDFit(DataSet):
             matplotlib.figure.Figure: The figure object containing the plot.
         """
         A_errs = [report.params['A'].stderr for report in self.fit_reports]
-        idx_max = np.argmax(self.A[abs(self.A)>A_errs])
-        return self.plot_single_fit(idx_max)
+        self.idx_max = np.argmax(self.A[abs(self.A)>A_errs])
+        return self.plot_single_fit(self.idx_max)
     
     def plot_single_fit(self, cut_idx=None, fit_report=None):
         """
