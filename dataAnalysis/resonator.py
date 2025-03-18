@@ -81,6 +81,7 @@ class DataSetVNA(DataSet):
             raise ValueError("The dataset does not contain the required parameters for a VNA measurement.")
         
         self.name_mag = mag['name']
+        mag_unit = phase['paramspec'].unit
         self.name_phase = phase['name']
         phase_unit = phase['paramspec'].unit
         self.name_freq = freq['name']
@@ -92,6 +93,9 @@ class DataSetVNA(DataSet):
             self.dependent_parameters[self.name_phase]['values'] *= np.pi/180
         else:
             raise ValueError(f'The phase \"{phase_unit}\" was not recognized.')
+        # Convert mag to dB always
+        if not mag_unit == 'dB':
+            self.dependent_parameters[self.name_mag]['values'] = 20*np.log10(abs(self.dependent_parameters[self.name_mag]['values']))
 
         # Generate attributes
         self.freq = freq['values']
