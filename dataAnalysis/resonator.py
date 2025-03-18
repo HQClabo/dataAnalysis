@@ -81,7 +81,7 @@ class DataSetVNA(DataSet):
             raise ValueError("The dataset does not contain the required parameters for a VNA measurement.")
         
         self.name_mag = mag['name']
-        mag_unit = phase['paramspec'].unit
+        mag_unit = mag['paramspec'].unit
         self.name_phase = phase['name']
         phase_unit = phase['paramspec'].unit
         self.name_freq = freq['name']
