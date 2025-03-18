@@ -92,16 +92,17 @@ def get_photons_in_resonator(power, fitresults, freq_unit='Hz', unit='dBm'):
 			return power / get_single_photon_limit(fitresults, freq_unit=freq_unit, unit='watt')
         
 def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz'):
+    alpha = 0.7
     freq = freq * get_frequency_scaling(freq_unit)/1e9
     fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
     axes[0].plot(freq, abs(data), marker='.', ms=2, ls='')
-    axes[0].plot(freq, abs(fit_result.best_fit))
+    axes[0].plot(freq, abs(fit_result.best_fit),alpha=alpha)
     myplt.format_plot(axes[0],xlabel='f (GHz)',ylabel='|S21|')
     axes[1].plot(freq, np.angle(data, deg=True), marker='.', ms=2, ls='')
-    axes[1].plot(freq, np.angle(fit_result.best_fit, deg=True))
+    axes[1].plot(freq, np.angle(fit_result.best_fit, deg=True),alpha=alpha)
     myplt.format_plot(axes[1],xlabel='f (GHz)',ylabel='S21 (°)')
     axes[2].plot(data.real, data.imag, marker='.', ms=2, ls='')
-    axes[2].plot(fit_result.best_fit.real, fit_result.best_fit.imag)
+    axes[2].plot(fit_result.best_fit.real, fit_result.best_fit.imag,alpha=alpha)
     myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
     for ax in axes:
         ax.set_aspect(1/ax.get_data_ratio())
@@ -126,6 +127,8 @@ def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notc
         The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the fit. The default is False.
 
@@ -269,6 +272,8 @@ def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenu
         The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the individual fits. The default is False.
 
@@ -423,7 +428,40 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
             plt.show()
     return fit_report
 
-def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,method='resonator_tools',port_type='notch',freq_unit='Hz',plot=False):
+def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notch',method='resonator_tools',freq_unit='Hz',plot=False):
+    """
+    Function to fit resonances of a magnetic field sweep.
+
+    Parameters
+    ----------
+    data : ndarray
+        Complex data of dimension (n_power,n_freq).
+    freq : ndarray
+        List of the measured frequencies.
+    field : ndarray
+        List of the different magnetic field values applied.
+    center_freqs : list
+        List of center frequencies for each magnetic field value to determine the fitting window.
+    span : float
+        Single value for the frequency span of the fitting window.
+    power : number, optional
+        Applied input power in dBm. The default is -140 dBm.
+    port_type : str, optional
+        Type of the resonator port. Choose 'notch' or 'reflection.
+        The default is 'notch'.
+    method : str, optional
+        Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    freq_unit : str, optional
+        Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+    plot : boolean, optional
+        Enable option to plot the individual fits. The default is False.
+
+    Returns
+    -------
+    fitReport : dict
+        Dictionary containing the results of the fit as np.arrays for each parameter.
+
+    """
     n_fields = len(field)
     fit_report = {
         "fr" : np.array([np.nan]*n_fields),
