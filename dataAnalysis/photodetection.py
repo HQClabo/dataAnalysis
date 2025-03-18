@@ -571,7 +571,13 @@ class KappaDQDFit(DataSet):
             textstr += '$\kappa_{DQD}$ = '+f'{(kappa_DQD) / 1e6:.2f} MHz' + '\n'
             textstr += '$\kappa$ = '+f'{self.kappa_res / 1e6:.2f} MHz'
         
-        ax.text(0.97, 0.97, textstr, transform=ax.transAxes, verticalalignment='top', horizontalalignment='right', color='black')
+        if fit_report.best_values['A'] > 0:
+            y_pos = 0.97
+            vert_align = 'top'
+        else:
+            y_pos = 0.03
+            vert_align = 'bottom'
+        ax.text(0.97, y_pos, textstr, transform=ax.transAxes, verticalalignment=vert_align, horizontalalignment='right', color='black')
         return fig, ax
 
         
