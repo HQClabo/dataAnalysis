@@ -95,8 +95,9 @@ class EfficiencyFit(DataSet):
         """
         Fits the photocurrent efficiency as a function of detuning.
 
-        This method iterates over the detuning values and fits the photocurrent efficiency
-        for each detuning value. The results are stored in an array and returned.
+        This method iterates over the detuning values and fits the photocurrent efficiency for each detuning value.
+        The index of the maximum fitted amplitudes for both positive and negative currents are stored in self.idx_pos and self.idx_neg.
+        The index of the maximum fitted amplitude overall is stored in self.idx_max.
 
         Parameters:
             freq (float): The frequency at which the measurement is taken.
@@ -104,15 +105,22 @@ class EfficiencyFit(DataSet):
             power_range (tuple, optional): The range of power values to consider for the fit. 
                                        If None, the full range is used.
 
-        Returns:
-            np.ndarray: An array containing the fitted photocurrent efficiency for each detuning value.
+        Attributes:
+            fits (list): A list containing the fit results for each detuning value.
+            efficiency (np.ndarray): An array containing the fitted photocurrent efficiency for each detuning value.
+            idx_max (int): Detuning index of the maximum efficiency value.
+            idx_pos (int): Detuning index of the maximum efficiency value for positive currents.
+            idx_neg (int): Detuning index of the maximum efficiency value for negative currents.
         """
-        efficiency = []
+        self.fits = []
+        efficiency_temp = []
         for i in range(len(self.detuning)):
-            self.fit_photocurrent_efficiency(freq, attenuation, power_range, cut_idx=i)
-            efficiency.append(self.efficiency)
-        self.efficiency = np.array(efficiency)
-        return self.efficiency
+            self.fits.append(self.fit_photocurrent_efficiency(freq, attenuation, power_range, cut_idx=i))
+            efficiency_temp.append(self.efficiency)
+        self.efficiency = np.array(efficiency_temp)
+        self.idx_max = np.argmax(abs(self.efficiency))
+        self.idx_pos = np.argmax(self.efficiency)
+        self.idx_neg = np.argmin(self.efficiency)
     
     def fit_photocurrent_efficiency_vs_power_and_detuning(self, freq, attenuation, power_fit_range=None):
         """
@@ -169,6 +177,7 @@ class EfficiencyFit(DataSet):
         """
         # plot efficiency and dark current
         fig, ax = plt.subplots()
+        fig.suptitle(f'Run #{self.run_id} - Photocurrent efficiency vs. detuning' + title_suffix)
         ax.plot(self.detuning*1e3, self.efficiency, marker='.', ls='', alpha=0.7)
         
         effi_ylim = 1.2*np.max(np.abs(self.efficiency))
@@ -176,15 +185,12 @@ class EfficiencyFit(DataSet):
         ax.set_xlabel('Detuning gate voltage (mV)')
         ax.set_ylabel(r'$\eta$ (%)')
         
-        ax_r = ax.twinx()
         if dark_current:
+            ax_r = ax.twinx()
             ax_r.plot(self.detuning*1e3, self.Id[0]*1e12, marker='.', ls='', alpha=0.7, color = 'tab:orange', **kwargs)
             id_ylim = 1.2*np.max(np.abs(self.Id[0]*1e12))
             ax_r.set_ylim([-id_ylim, id_ylim])
             ax_r.set_ylabel(r'Dark current (pA)')
-
-        fig.suptitle(f'Run #{self.run_id} - Photocurrent efficiency vs. detuning' + title_suffix)
-        if dark_current:
             return fig, ax, ax_r
         else:
             return fig, ax
@@ -215,22 +221,30 @@ class EfficiencyFit(DataSet):
         ax.set_ylabel(r'$|\eta|$ (%)')
         return fig, ax
 
-    def get_max_efficiency_with_detuning(self):
+    def get_max_efficiency_with_detuning(self, plot_selection='both'):
         """
-        Calculate the maximum efficiency and its corresponding detuning value.
+        Plot the maximum efficiency and its corresponding detuning value.
 
-        This method finds the maximum value of the absolute efficiency and returns
-        both this maximum efficiency and the detuning value at which it occurs.
+        Parameters:
+            plot_selection : str, optional
+                Choice of the peak to plot, based on the sign of the amplitude.
+                Can be 'both', 'positive', 'negative' or 'max'. Default is 'both'.
 
         Returns:
             tuple: A tuple containing:
                 - float: The maximum efficiency value.
                 - float: The detuning value corresponding to the maximum efficiency.
         """
-        ind_effi_max = np.argmax(np.abs(self.efficiency))
-        return np.max(np.abs(self.efficiency)), self.detuning[ind_effi_max]
 
-    def plot_max_efficiency_fit(self, power_range=None, **kwargs):
+        if plot_selection:
+            self.idx_max = np.argmax(self.efficiency)
+            self.idx_min = np.argmin(self.efficiency)
+            return self.efficiency[self.idx_max], self.detuning[self.idx_max], self.efficiency[self.idx_min], self.detuning[self.idx_min]
+        else:
+            ind_effi_max = np.argmax(np.abs(self.efficiency))
+            return np.max(np.abs(self.efficiency)), self.detuning[ind_effi_max]
+
+    def plot_max_efficiency_fit(self, power_range=None, plot_selection=False, **kwargs):
         """
         Plots the maximum efficiency fit for the photodetection data.
 
@@ -245,12 +259,23 @@ class EfficiencyFit(DataSet):
         Returns:
             matplotlib.figure.Figure: The figure object containing the plot.
         """
-        idx_eff_max = np.argmax(np.abs(self.efficiency))
-
-        title = f'Run #{self.run_id} - $\eta$ = {abs(self.efficiency[idx_eff_max]):.2f}%, at detuning {self.detuning[idx_eff_max]*1e3:.2f} mV'
-        return self.plot_photocurrent_efficiency_fit(idx_eff_max, title, power_range, **kwargs)
+        if plot_selection == 'both':
+            fig_pos, ax_pos = self.plot_photocurrent_efficiency_fit(self.idx_pos, power_range, **kwargs)
+            fig_neg, ax_neg = self.plot_photocurrent_efficiency_fit(self.idx_neg, power_range, **kwargs)
+            return (fig_pos, ax_pos), (fig_neg, ax_neg)
+        elif plot_selection == 'positive':
+            fig, ax = self.plot_photocurrent_efficiency_fit(self.idx_pos, power_range, **kwargs)
+            return fig, ax
+        elif plot_selection == 'negative':
+            fig, ax = self.plot_photocurrent_efficiency_fit(self.idx_neg, power_range, **kwargs)
+            return fig, ax
+        elif plot_selection == 'max':
+            fig, ax = self.plot_photocurrent_efficiency_fit(self.idx_max, power_range, **kwargs)
+            return fig, ax
+        else:
+            raise ValueError('Invalid plot_side value. Use "both", "positive", "negative" or "max"')
     
-    def plot_photocurrent_efficiency_fit(self, idx=None, title='', power_range=None, **kwargs):
+    def plot_photocurrent_efficiency_fit(self, idx=None, power_range=None, title_suffix='', **kwargs):
         """
         Plots the photocurrent efficiency fit.
 
@@ -265,8 +290,12 @@ class EfficiencyFit(DataSet):
         """
         if idx is not None:
             Id = self.Id[:,idx]*1e12
+            title = f'Run #{self.run_id} - $\eta$ = {abs(self.efficiency[idx]):.2f}%, at detuning {self.detuning[idx]*1e3:.2f} mV'
         else:
             Id = self.Id*1e12
+            title = f'Run #{self.run_id} - $\eta$ = {abs(self.efficiency):.2f}%'
+        title += title_suffix
+
         if power_range is not None:
             plot_idxs = (power_range[0] <= self.power_watts) & (self.power_watts <= power_range[1])
         else:
@@ -348,7 +377,7 @@ class KappaDQDFit(DataSet):
         else:
             self.detuning = detuning['values']
 
-    def fit_kappa_DQD_1D(self, guess_fr=None, guess_kappa_tot=100e6, guess_A=1, do_plots=False, kappa_res=None):
+    def fit_kappa_DQD_1D(self, guess_fr=None, guess_kappa_tot=None, guess_A=1, do_plots=False, kappa_res=None):
         """
         Fits the additional loss rate kappa_DQD due to dissipations in the DQD from 1D dataset (Id vs frequency).
         Parameters:
@@ -392,6 +421,8 @@ class KappaDQDFit(DataSet):
 
         if guess_fr is None:
             guess_fr = np.mean(self.freq)
+        if guess_kappa_tot is None:
+            guess_kappa_tot = self.freq.ptp()/5
         
         # create the lmfit.Parameters object and adjust some settings
         guess_offset = self.Id[np.argmax(abs(self.Id))]
@@ -420,21 +451,23 @@ class KappaDQDFit(DataSet):
             self.kappa_DQD = self.kappa_tot - kappa_res
         return result
 
-    def fit_kappa_DQD_2D(self, guess_fr=None, guess_kappa_tot=100e6, guess_A=1, do_plots=False, kappa_res=None):
+    def fit_kappa_DQD_2D(self, guesses=dict(), do_plots=False, plot_initial_guess=False, kappa_res=None):
         """
         Fits the additional loss rate kappa_DQD due to dissipations in the DQD from 2D dataset (Id vs. detuning and frequency).
+        The index of the maximum fitted amplitudes for both positive and negative currents are stored in self.idx_pos and self.idx_neg.
+        The index of the maximum fitted amplitude overall is stored in self.idx_max.
         Parameters:
         -----------
-        guess_fr : float, optional
-            Initial guess for the resonance frequency. If None, the mean of self.freq is used. Default is None.
-        guess_kappa_tot : float, optional
-            Initial guess for the total kappa. Default is 100e6.
-        guess_A : float, optional
-            Initial guess for the amplitude. Default is 1.
+        guesses : dict, optional
+            Dictonary containing the initial guess the parameters 'fr', 'kappa_tot', 'A', 'offset'.
+            Default is an empty dictionary.
         do_plots : bool, optional
             If True, plots the fit for each iteration. Default is False.
+        plot_initial_guess : bool, optional
+            If True, plots the initial guess for the fit. Only plots something if do_plots is True. Default is False.
         kappa_res : float, optional
-            Known total resonator linewidth to calculate kappa_DQD. If None, self.kappa_res and self.kappa_DQD are set to None. Default is None.
+            Known total resonator linewidth to calculate kappa_DQD. If None, self.kappa_res and self.kappa_DQD
+            are set to None. Default is None.
         Returns:
         --------
         results : list
@@ -455,30 +488,45 @@ class KappaDQDFit(DataSet):
             Known kappa_res value or None if not provided.
         self.kappa_DQD : numpy.ndarray or None
             Array of kappa_DQD values or None if kappa_res is not provided.
+        self.idx_max : int
+            Detuning index of the maximum peak amplitude.
+        self.idx_pos : int
+            Detuning index of the maximum positive peak amplitude.
+        self.idx_neg : int
+            Detuning index of the maximum negative peak amplitude.
         """
         if self.detuning is None:
             raise ValueError('This is not a 2D dataset. Use the fit_kappa_DQD_1D function instead.')
 
         model_func = Ip_vs_frequency
 
-        if guess_fr is None:
-            guess_fr = np.mean(self.freq)
-            
+        guesses_fit = {
+            'fr': np.mean(self.freq),
+            'kappa_tot': self.freq.ptp()/5,
+            'A': 1,
+            'offset': 0
+        }
+        for key in guesses.keys():
+            guesses_fit[key] = guesses[key] 
         results = []
         fr_list = []
-        A_list = []
         kappa_tot_list = []
+        A_list = []
         offset_list = []
         
         for i, data_cut in enumerate(self.Id.T):
             # create the lmfit.Parameters object and adjust some settings
-            guess_offset = data_cut[np.argmax(abs(data_cut))]
-            params=lmfit.Parameters() # object
-            params.add('fr', value=guess_fr, vary=True)
-            params.add('kappa_tot', value=guess_kappa_tot, vary=True)
-            params.add('A', value=guess_A, vary=True)
-            params.add('offset', value=guess_offset, vary=True)
-            params['kappa_tot'].min = 0
+            guesses_fit['offset'] = np.median(data_cut)
+            guesses_fit['A'] = data_cut[np.argmin(abs(self.freq-guesses_fit['fr']))] - guesses_fit['offset']
+            for key in guesses.keys():
+                guesses_fit[key] = guesses[key]
+            params=lmfit.Parameters()
+            # params.add('fr', value=guess_fr, min=self.freq.min(), max=self.freq.max(), vary=True)
+            # params.add('kappa_tot', value=guess_kappa_tot, min=0, vary=True)
+            # params.add('A', value=guess_A, vary=True)
+            # params.add('offset', value=guess_offset, vary=True)
+            for param_name, guess in guesses_fit.items():
+                params.add(param_name, value=guess, vary=True)
         
             # fit the data
             model = lmfit.Model(model_func, independent_vars=['fdrive'])
@@ -488,38 +536,58 @@ class KappaDQDFit(DataSet):
             A_list.append(result.best_values['A'])
             kappa_tot_list.append(result.best_values['kappa_tot'])
             offset_list.append(result.best_values['offset'])
-            self.fit_reports = results
-            self.fr = np.array(fr_list)
-            self.A = np.array(A_list)
-            self.kappa_tot = np.array(kappa_tot_list)
-            self.offset = np.array(offset_list)
-            if kappa_res is None:
-                self.kappa_res = None
-                self.kappa_DQD = None
-            else:
-                self.kappa_res = kappa_res
-                self.kappa_DQD = self.kappa_tot - kappa_res
 
             if do_plots:
-                self.plot_single_fit(i, fit_report=result)
+                self.plot_single_fit(i, fit_report=result, plot_initial_guess=plot_initial_guess)
+        self.fit_reports = results
+        self.fr = np.array(fr_list)
+        self.kappa_tot = np.array(kappa_tot_list)
+        self.A = np.array(A_list)
+        self.offset = np.array(offset_list)
+        if kappa_res is None:
+            self.kappa_res = None
+            self.kappa_DQD = None
+        else:
+            self.kappa_res = kappa_res
+            self.kappa_DQD = self.kappa_tot - kappa_res
+
+        A_errs = np.array([report.params['A'].stderr for report in self.fit_reports])
+        A_errs[A_errs == None] = np.nan
+        self.idx_max = np.argmax(abs(self.A[abs(self.A)>A_errs]))
+        self.idx_pos = np.argmax(self.A[abs(self.A)>A_errs])
+        self.idx_neg = np.argmin(self.A[abs(self.A)>A_errs])
         return results
 
-    def plot_max_peak_fit(self):
+    def plot_max_peak_fit(self, plot_selection='both'):
         """
         Plots the fit of the data with the maximum peak height. Ignores fits where the error of A is larger than its value.
-
-        This method finds the index of the maximum value in the array `A` and 
-        calls the `plot_single_fit` method with this index to plot the fit 
-        at the maximum peak.
+        
+        Parameters:
+        -----------
+        plot_selection : str, optional
+            Choice of the peak to plot, based on the sign of the amplitude.
+             Can be 'both', 'positive', 'negative' or 'max'. Default is 'both'.
 
         Returns:
             matplotlib.figure.Figure: The figure object containing the plot.
         """
-        A_errs = [report.params['A'].stderr for report in self.fit_reports]
-        self.idx_max = np.argmax(self.A[abs(self.A)>A_errs])
-        return self.plot_single_fit(self.idx_max)
+        if plot_selection == 'both':
+            fig_pos, ax_pos = self.plot_single_fit(self.idx_pos)
+            fig_neg, ax_neg = self.plot_single_fit(self.idx_neg)
+            return (fig_pos, ax_pos), (fig_neg, ax_neg)
+        elif plot_selection == 'positive':
+            fig, ax = self.plot_single_fit(self.idx_pos)
+            return fig, ax
+        elif plot_selection == 'negative':
+            fig, ax = self.plot_single_fit(self.idx_neg)
+            return fig, ax
+        elif plot_selection == 'max':
+            fig, ax = self.plot_single_fit(self.idx_max)
+            return fig, ax
+        else:
+            raise ValueError('Invalid plot_side value. Use "both", "positive", "negative" or "max"')
     
-    def plot_single_fit(self, cut_idx=None, fit_report=None):
+    def plot_single_fit(self, cut_idx=None, fit_report=None, plot_initial_guess=False):
         """
         Plots the fit of a single frequency sweep.
         Parameters:
@@ -557,11 +625,14 @@ class KappaDQDFit(DataSet):
                 kappa_DQD = self.kappa_DQD[cut_idx]
         fit_freq = np.linspace(self.freq.min(), self.freq.max(), len(self.freq)*5)
         fit_data = fit_report.eval(fit_report.params, fdrive=fit_freq)
+        init_data = fit_report.eval(fit_report.init_params, fdrive=fit_freq)
 
         fig, ax = plt.subplots()
         fig.suptitle(f'Run #{self.run_id}' + ' - $\kappa_{DQD}$ fit' + f' - detuning = {detuning*1e3:.2f} mV')
         ax.plot(self.freq/1e9, Id*1e12, ls='', marker='.')
         ax.plot(fit_freq/1e9, fit_data*1e12, ls='-', marker='')
+        if plot_initial_guess:
+            ax.plot(fit_freq/1e9, init_data*1e12, ls='--', marker='', c='k')
         ax.set_xlabel('$f_{drive}$ (GHz)')
         ax.set_ylabel('$I_d$ (pA)')
 
