@@ -29,13 +29,13 @@ def S11_resonator_reflection(fdrive, fr, kappa, kappa_c, a, alpha, delay):
     environment = a * np.exp(1j * (alpha - 2*np.pi*fdrive*delay))
     return S11 * environment
 
-def guess_resonator_params(f, data, fraction=0.1, peak_direction=-1):
+def guess_resonator_params(f, data, fraction=0.1, port_type='notch'):
     # do a Lorentzian fit to the magnitude of complex to get the resonance frequency and linewidth
     model = lmfit.models.LorentzianModel() + lmfit.models.ConstantModel()
     model.set_param_hint('center', value=f.mean(), vary=True)
     sigma = f.ptp()/10
     model.set_param_hint('sigma', value=sigma, vary=True)
-    model.set_param_hint('amplitude', value=peak_direction*abs(data).ptp() * sigma*np.pi, vary=True)
+    model.set_param_hint('amplitude', value=-abs(data).ptp() * sigma*np.pi, max=0, vary=True)
     model.set_param_hint('c', value=np.median(abs(data)), vary=True)
     result = model.fit(data=abs(data), x=f)
     fr = result.best_values['center']
@@ -43,13 +43,19 @@ def guess_resonator_params(f, data, fraction=0.1, peak_direction=-1):
     a = result.best_values['c']
 
     # linear fit of first and last 10% of the unwrapped phase
+    # the phase offset contains the phase of the reflection from the resonator
+    if port_type == 'notch':
+        phase_offset = 0
+    elif port_type == 'reflection':
+        phase_offset = np.pi
+    # phase_offset = 0
     phase = np.unwrap(np.angle(data))
     first = int(len(f)//(1/fraction))
     last = -int(len(f)//(1/fraction))
     fit1 = linregress(f[:first], phase[:first])
     fit2 = linregress(f[last:], phase[last:])
     delay = -(fit1.slope + fit2.slope) / 2 / (2*np.pi)
-    alpha = (fit1.intercept + 2*np.pi*delay*f[0] + np.pi) % (2*np.pi) - np.pi
+    alpha = (phase[0] + 2*np.pi*delay*f[0] - phase_offset + np.pi) % (2*np.pi) - np.pi
     return fr, kappa, a, alpha, delay
 
 def get_frequency_scaling(freq_unit='Hz'):
@@ -91,7 +97,7 @@ def get_photons_in_resonator(power, fitresults, freq_unit='Hz', unit='dBm'):
 				power = 10**(power/10.) /1000.
 			return power / get_single_photon_limit(fitresults, freq_unit=freq_unit, unit='watt')
         
-def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz'):
+def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz', plot_initial_guesses=False):
     alpha = 0.7
     freq = freq * get_frequency_scaling(freq_unit)/1e9
     fig, axes = plt.subplots(1,3,width_ratios=[1,1,1],gridspec_kw=dict(wspace=0.4))
@@ -104,11 +110,16 @@ def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz'):
     axes[2].plot(data.real, data.imag, marker='.', ms=2, ls='')
     axes[2].plot(fit_result.best_fit.real, fit_result.best_fit.imag,alpha=alpha)
     myplt.format_plot(axes[2],xlabel='Re(S21) (a.u.)',ylabel='Im(S21) (a.u.)')
+
+    if plot_initial_guesses:
+        axes[0].plot(freq, abs(fit_result.init_fit),alpha=alpha,ls='--',c='k')
+        axes[1].plot(freq, np.angle(fit_result.init_fit, deg=True),alpha=alpha,ls='--',c='k')
+        axes[2].plot(fit_result.init_fit.real, fit_result.init_fit.imag,alpha=alpha,ls='--',c='k')
     for ax in axes:
         ax.set_aspect(1/ax.get_data_ratio())
-    return fig, ax
+    return fig, axes
         
-def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notch', method='resonator_tools', freq_unit='Hz', plot=False):
+def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notch', method='resonator_tools', freq_unit='Hz', plot=False, plot_initial_guesses=False):
     """
     Function to fit resonances of a power sweep.
 
@@ -123,15 +134,15 @@ def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notc
     power : ndarray, optional
         Input power in dBm. Default is -140 dBm.
     port_type : str, optional
-        Type of the resonator port. Choose 'notch' or 'reflection.
-        The default is 'notch'.
+        Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
     freq_unit : str, optional
         Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the fit. The default is False.
-
+    plot_initial_guesses : boolean, optional
+        Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
     Returns
     -------
     fitReport : dict
@@ -141,7 +152,7 @@ def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notc
     if method == 'resonator_tools':
         return _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,plot)
     elif method == 'lmfit':
-        return _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,plot)
+        return _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,plot,plot_initial_guesses)
     else:
         raise ValueError("This method is not supported. Use 'resonator_tools' or 'lmfit'")
 
@@ -179,6 +190,8 @@ def _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,pl
         fit_report["Qc_err"] = port.fitresults["Qc_err"]
     fit_report["Ql"] = port.fitresults["Ql"]
     fit_report["Ql_err"] = port.fitresults["Ql_err"]
+    if port_type == 'notch':
+        fit_report["phi0"] = port.fitresults["phi0"]
     fit_report["Nph"] = port.get_photons_in_resonator(power,unit='dBm')
     fit_report["single_photon_W"] = port.get_single_photon_limit(unit='watt')
     fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm')
@@ -186,7 +199,7 @@ def _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,pl
     fit_report['fitresults'] = port.fitresults
     return fit_report
 
-def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,plot):
+def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,plot,plot_initial_guesses):
     # Define port type
     if port_type == 'notch':
         model_func = S21_resonator_notch
@@ -202,7 +215,7 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
         data_to_fit = data_to_fit[freq_slice]
     else:
         freq_to_fit = freq
-    fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit)
+    fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit, port_type=port_type)
     fixed_params = []
 
     # define the initial guesses for the parameters
@@ -213,6 +226,8 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
     guesses['a'] = a
     guesses['alpha']= alpha
     guesses['delay'] = delay
+    if port_type == 'notch':
+        guesses['phi0'] = 0
 
     # create the lmfit.Parameters object and adjust some settings
     params=lmfit.Parameters() # object
@@ -229,6 +244,8 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
 
     for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
         params[param_name].min = 0
+    params['alpha'].min = -np.pi
+    params['alpha'].max = np.pi
 
     # fit the data
     model = lmfit.Model(model_func, independent_vars=['fdrive'])
@@ -248,10 +265,10 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
     fit_report['fitresults'] = result
     
     if plot:
-        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit)
+        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit, plot_initial_guesses=plot_initial_guesses)
     return fit_report
 
-def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenuation=80, port_type='notch', method='resonator_tools', freq_unit='Hz', plot=False):
+def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenuation=80, port_type='notch', method='resonator_tools', freq_unit='Hz', plot=False, plot_initial_guesses=False):
     """
     Function to fit resonances of a power sweep.
 
@@ -268,14 +285,15 @@ def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenu
     attenuation : number, optional
         Total estimated line attenuation. The default is 80.
     port_type : str, optional
-        Type of the resonator port. Choose 'notch' or 'reflection.
-        The default is 'notch'.
+        Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
     freq_unit : str, optional
         Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the individual fits. The default is False.
+    plot_initial_guesses : boolean, optional
+        Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
 
     Returns
     -------
@@ -306,10 +324,12 @@ def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenu
         "single_photon_dBm" : np.array([np.nan]*n_powers),
         'fitresults': [None]*n_powers,
         }
+    if port_type == 'notch':
+        fit_report['phi0'] = np.array([np.nan]*n_powers)
     if method == 'resonator_tools':
         return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot)
     elif method == 'lmfit':
-        return _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,freq_unit,plot)
+        return _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,freq_unit,plot,plot_initial_guesses)
     else:
         raise ValueError(f"The method '{method}' is not supported. Use 'resonator_tools' or 'lmfit'")
     
@@ -351,6 +371,8 @@ def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,atte
             fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
         fit_report["Ql"][k] = port.fitresults["Ql"]
         fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
+        if port_type == 'notch':
+            fit_report["phi0"] = port.fitresults["phi0"]
         fit_report["Nph"][k] = port.get_photons_in_resonator(pwr - attenuation,unit='dBm')
         fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
         fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
@@ -358,7 +380,7 @@ def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,atte
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
 
-def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,freq_unit,plot):
+def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,freq_unit,plot,plot_initial_guesses):
     for k,pwr in enumerate(power):
         if power_range:
             if (pwr < power_range[0]) or (pwr > power_range[1]):
@@ -378,7 +400,7 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
             data_to_fit = data_to_fit[freq_slice]
         else:
             freq_to_fit = freq
-        fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit)
+        fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit, port_type=port_type)
         fixed_params = []
 
         # define the initial guesses for the parameters
@@ -389,6 +411,8 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
         guesses['a'] = a
         guesses['alpha']= alpha
         guesses['delay'] = delay
+        if port_type == 'notch':
+            guesses['phi0'] = 0
 
         # create the lmfit.Parameters object and adjust some settings
         params=lmfit.Parameters() # object
@@ -405,6 +429,8 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
 
         for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
             params[param_name].min = 0
+        params['alpha'].min = -np.pi
+        params['alpha'].max = np.pi
 
         # fit the data
         model = lmfit.Model(model_func, independent_vars=['fdrive'])
@@ -424,11 +450,11 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
         
         if plot:
             print(f'Power = {pwr} dBm')
-            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit)
+            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit, plot_initial_guesses=plot_initial_guesses)
             plt.show()
     return fit_report
 
-def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notch',method='resonator_tools',freq_unit='Hz',plot=False):
+def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notch',method='resonator_tools',freq_unit='Hz',plot=False, plot_initial_guesses=False):
     """
     Function to fit resonances of a magnetic field sweep.
 
@@ -447,14 +473,15 @@ def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notc
     power : number, optional
         Applied input power in dBm. The default is -140 dBm.
     port_type : str, optional
-        Type of the resonator port. Choose 'notch' or 'reflection.
-        The default is 'notch'.
+        Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
     freq_unit : str, optional
         Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the individual fits. The default is False.
+    plot_initial_guesses : boolean, optional
+        Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
 
     Returns
     -------
@@ -485,10 +512,12 @@ def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notc
         "single_photon_dBm" : np.array([np.nan]*n_fields),
         'fitresults': [None]*n_fields,
         }
+    if port_type == 'notch':
+        fit_report['phi0'] = np.array([np.nan]*n_fields)
     if method == 'resonator_tools':
         return _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,power,port_type,fit_report,plot)
     elif method == 'lmfit':
-        return _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,power,port_type,fit_report,freq_unit,plot)
+        return _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,power,port_type,fit_report,freq_unit,plot,plot_initial_guesses)
     
 def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,plot):
     for k,cfreq in enumerate(center_freqs):
@@ -527,6 +556,8 @@ def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_ran
             fit_report["Qc_err"][k] = port.fitresults["Qc_err"]
         fit_report["Ql"][k] = port.fitresults["Ql"]
         fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
+        if port_type == 'notch':
+            fit_report["phi0"] = port.fitresults["phi0"]
         fit_report["Nph"][k] = port.get_photons_in_resonator(power,unit='dBm')
         fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
         fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
@@ -534,7 +565,7 @@ def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_ran
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
 
-def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,freq_unit,plot):
+def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,freq_unit,plot,plot_initial_guesses):
     for k,cfreq in enumerate(center_freqs):
         if field_range:
             if (field < field_range[0]) or (field > field_range[1]):
@@ -552,7 +583,7 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
         freq_to_fit = freq[freq_slice]
         data_to_fit = data_to_fit[freq_slice]
 
-        fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit)
+        fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit, port_type=port_type)
 
         fixed_params = []
         # define the initial guesses for the parameters
@@ -563,6 +594,8 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
         guesses['a'] = a
         guesses['alpha']= alpha
         guesses['delay'] = delay
+        if port_type == 'notch':
+            guesses['phi0'] = 0
 
         # create the lmfit.Parameters object and adjust some settings
         params=lmfit.Parameters() # object
@@ -579,6 +612,8 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
 
         for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
             params[param_name].min = 0
+        params['alpha'].min = -np.pi
+        params['alpha'].max = np.pi
 
         # fit the data
         model = lmfit.Model(model_func, independent_vars=['fdrive'])
@@ -598,7 +633,7 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
         
         if plot:
             print(f'Field = {field*1e3} mT')
-            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit)
+            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit, plot_initial_guesses=plot_initial_guesses)
             plt.show()
     return fit_report
 

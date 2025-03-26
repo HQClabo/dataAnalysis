@@ -8,18 +8,6 @@ import lmfit
 from .base import DataSet
 import dataAnalysis.resonator_fitting as resfit
 
-def S21_resonator_notch(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay, phi0):
-        delta_r = fdrive - fr
-        S21 = (delta_r - 1j/2*(kappa_int + kappa_ext*(1-np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa_ext + kappa_int))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S21 * environment
-
-def S11_resonator_reflection(fdrive, fr, kappa_int, kappa_ext, a, alpha, delay):
-    delta_r = fdrive - fr
-    S11 = (delta_r + 1j/2*(kappa_ext - kappa_int)) / (delta_r - 1j/2*(kappa_ext + kappa_int))
-    environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-    return S11 * environment
-
 
 class DataSetVNA(DataSet):
     """
@@ -172,17 +160,25 @@ class FrequencyScanVNA(DataSetVNA):
             self.phase = self.phase[freq_slice]
             self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
-    def analyze(self, freq_range=None, power=-140, port_type='notch', normalized=True, method='resonator_tools', freq_unit='Hz', do_plots=True):
+    def analyze(self, freq_range=None, power=-140, port_type='notch', normalized=True, method='resonator_tools', freq_unit='Hz', do_plots=True, plot_initial_guesses=False):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
         Args:
-            freq_range (tuple, optional): Frequency range to consider for analysis. Defaults to None.
-            power (float, optional): Input power in dBm that arrives at the coupling port. Defaults to -140 dBm.
-            port_type (str, optional): Type of port to use for analysis. Supported values are 'notch' or 'reflection'. Defaults to 'notch'.
-            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to True.
-            method (str, optional): Method to use for fitting. Supported values are 'resonator_tools' or 'lmfit'. Defaults to 'resonator_tools'.
-            do_plots (bool, optional): Flag indicating whether to generate plots. Defaults to True.
+            freq_range : list, optional
+                Minimum and maximum frequency that will be considered for the fit.
+            power : ndarray, optional
+                Input power in dBm. Default is -140 dBm.
+            port_type : str, optional
+                Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
+            method : str, optional
+                Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+            freq_unit : str, optional
+                Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+            plot : boolean, optional
+                Enable option to plot the fit. The default is False.
+            plot_initial_guesses : boolean, optional
+                Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
 
         Returns:
             None
@@ -197,7 +193,7 @@ class FrequencyScanVNA(DataSetVNA):
             except AttributeError:
                 raise Warning("Normalized data not found. Using raw data instead.")
         freq_scaling = resfit.get_frequency_scaling(freq_unit)
-        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq/freq_scaling, freq_range, power, port_type, method, freq_unit, do_plots)
+        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq/freq_scaling, freq_range, power, port_type, method, freq_unit, do_plots, plot_initial_guesses)
 
 
 class PowerScanVNA(DataSetVNA):
@@ -238,18 +234,25 @@ class PowerScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=True, method='resonator_tools', freq_unit='Hz', do_plots=True):
+    def analyze(self, freq_range=None, power_range=None, attenuation=0, port_type='notch', normalized=True, method='resonator_tools', freq_unit='Hz', do_plots=True, plot_initial_guesses=False):
         """
         Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
 
         Args:
-            freq_range (tuple, optional): Frequency range to consider for analysis. Defaults to None.
-            power_range (tuple, optional): Power range to consider for analysis. Defaults to None.
-            attenuation (float, optional): Expected attenuation in dB between the instrument output and the resonator port. Defaults to 0.
-            port_type (str, optional): Type of port to use for analysis. Supported values are 'notch' or 'reflection'. Defaults to 'notch'.
-            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to True.
-            method (str, optional): Method to use for fitting. Supported values are 'resonator_tools' or 'lmfit'. Defaults to 'resonator_tools'.
-            do_plots (bool, optional): Flag indicating whether to generate plots. Defaults to True.
+            freq_range : list, optional
+                Minimum and maximum frequency that will be considered for the fit.
+            attenuation : number, optional
+                Total estimated line attenuation. The default is 80.
+            port_type : str, optional
+                Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
+            method : str, optional
+                Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+            freq_unit : str, optional
+                Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+            plot : boolean, optional
+                Enable option to plot the individual fits. The default is False.
+            plot_initial_guesses : boolean, optional
+                Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
 
         Returns:
             None
@@ -264,7 +267,7 @@ class PowerScanVNA(DataSetVNA):
             except AttributeError:
                 print("Warning: Normalized data not found. Using raw data instead.")
         freq_scaling = resfit.get_frequency_scaling(freq_unit)
-        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq/freq_scaling, self.power, freq_range, power_range, attenuation, port_type, method, freq_unit, do_plots)
+        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq/freq_scaling, self.power, freq_range, power_range, attenuation, port_type, method, freq_unit, do_plots, plot_initial_guesses)
     
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
@@ -367,20 +370,33 @@ class BScanVNA(DataSetVNA):
         self.phase = self.phase[slice_2d]
         self.cData = self.cData[slice_2d]
 
-    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', normalized=False, freq_unit='Hz', do_plots=True):
+    def analyze(self, freq_centers=None, freq_span=None, field_range=None, input_power=0, port_type='notch', normalized=False, freq_unit='Hz', do_plots=True, plot_initial_guesses=False):
         """
         Analyze the resonator data over a specified frequency and field range.
         Parameters:
-            freq_range (tuple, optional): A tuple specifying the frequency range to analyze (min_freq, max_freq). Defaults to None.
-            field_range (tuple, optional): A tuple specifying the field range to analyze (min_field, max_field). Defaults to None.
-            input_power (float, optional): The input power in dBm. Defaults to 0.
-            port_type (str, optional): The type of port to use for analysis. Options are 'notch' and 'reflection'. Defaults to 'notch'.
-            normalized (bool, optional): Flag indicating whether to use normalized data. Defaults to False.
-            do_plots (bool, optional): Whether to generate plots of the fitting results. Defaults to True.
+            center_freqs : list
+                List of center frequencies for each magnetic field value to determine the fitting window.
+            span : float
+                Single value for the frequency span of the fitting window.
+            power : number, optional
+                Applied input power in dBm. The default is -140 dBm.
+            port_type : str, optional
+                Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
+            method : str, optional
+                Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+            freq_unit : str, optional
+                Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+            plot : boolean, optional
+                Enable option to plot the individual fits. The default is False.
+            plot_initial_guesses : boolean, optional
+                Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+                
         Returns:
-            None: The results are stored in the instance variable `fit_report`.
+            None:
+                The results are stored in the instance variable `fit_report`.
         Raises:
-            ValueError: If an unsupported port type is specified.
+            ValueError:
+                If an unsupported port type is specified.
         Notes:
         The `fit_report` dictionary contains the following keys:
             - "Qi": Internal quality factor.
@@ -402,7 +418,7 @@ class BScanVNA(DataSetVNA):
         else:
             cData = self.cData
         freq_scaling = resfit.get_frequency_scaling(freq_unit)
-        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq/freq_scaling, self.field, freq_centers, freq_span, field_range, input_power, port_type, freq_unit, do_plots)
+        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq/freq_scaling, self.field, freq_centers, freq_span, field_range, input_power, port_type, freq_unit, do_plots, plot_initial_guesses)
 
     def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0):
         """
