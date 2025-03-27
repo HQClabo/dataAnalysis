@@ -119,7 +119,19 @@ def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz', plot_initia
         ax.set_aspect(1/ax.get_data_ratio())
     return fig, axes
         
-def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notch', method='resonator_tools', freq_unit='Hz', plot=False, plot_initial_guesses=False):
+def fit_frequency_sweep(
+        data,
+        freq,
+        freq_range=None,
+        power=-140,
+        port_type='notch',
+        method='resonator_tools',
+        guesses={},
+        freq_unit='Hz',
+        plot=False,
+        plot_initial_guesses=False,
+        **kwargs
+        ):
     """
     Function to fit resonances of a power sweep.
 
@@ -137,12 +149,17 @@ def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notc
         Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    guesses : dict, optional
+        Dictionary containing the initial guesses for the fit parameters for lmfit only. The default is {}.
     freq_unit : str, optional
         Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the fit. The default is False.
     plot_initial_guesses : boolean, optional
         Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+    **kwargs : dict
+        Additional keyword arguments for lmfit.Model.fit.
+
     Returns
     -------
     fitReport : dict
@@ -152,11 +169,18 @@ def fit_frequency_sweep(data, freq, freq_range=None, power=-140, port_type='notc
     if method == 'resonator_tools':
         return _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,plot)
     elif method == 'lmfit':
-        return _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,plot,plot_initial_guesses)
+        return _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,guesses,freq_unit,plot,plot_initial_guesses,**kwargs)
     else:
-        raise ValueError("This method is not supported. Use 'resonator_tools' or 'lmfit'")
+        raise ValueError(f"The method '{method}' is not supported. Use 'resonator_tools' or 'lmfit'")
 
-def _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,plot):
+def _fit_frequency_sweep_resonator_tools(
+        data,
+        freq,
+        freq_range,
+        power,
+        port_type,
+        plot
+        ):
     fit_report = {}
     # define port type
     if port_type == 'notch':
@@ -199,7 +223,18 @@ def _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,pl
     fit_report['fitresults'] = port.fitresults
     return fit_report
 
-def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,plot,plot_initial_guesses):
+def _fit_frequency_sweep_lmfit(
+        data,
+        freq,
+        freq_range,
+        power,
+        port_type,
+        user_guesses,
+        freq_unit,
+        plot,
+        plot_initial_guesses,
+        **kwargs
+        ):
     # Define port type
     if port_type == 'notch':
         model_func = S21_resonator_notch
@@ -229,6 +264,10 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
     if port_type == 'notch':
         guesses['phi0'] = 0
 
+    # overwrite the initial guesses with the ones provided by the user
+    for key, value in user_guesses.items():
+        guesses[key] = value
+
     # create the lmfit.Parameters object and adjust some settings
     params=lmfit.Parameters() # object
     signature = inspect.signature(model_func)
@@ -249,7 +288,7 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
 
     # fit the data
     model = lmfit.Model(model_func, independent_vars=['fdrive'])
-    result = model.fit(data_to_fit, params, fdrive=freq_to_fit, scale_covar=False)
+    result = model.fit(data_to_fit, params, fdrive=freq_to_fit, **kwargs)
     par = result.params
     fit_report = {}
     fit_report["fr"] = par['fr'].value
@@ -265,10 +304,25 @@ def _fit_frequency_sweep_lmfit(data,freq,freq_range,power,port_type,freq_unit,pl
     fit_report['fitresults'] = result
     
     if plot:
-        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit, plot_initial_guesses=plot_initial_guesses)
+        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
+                                 plot_initial_guesses=plot_initial_guesses)
     return fit_report
 
-def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenuation=80, port_type='notch', method='resonator_tools', freq_unit='Hz', plot=False, plot_initial_guesses=False):
+def fit_power_sweep(
+        data,
+        freq,
+        power,
+        freq_range=None,
+        power_range=None,
+        attenuation=80,
+        port_type='notch',
+        method='resonator_tools',
+        guesses={},
+        freq_unit='Hz',
+        plot=False,
+        plot_initial_guesses=False,
+        **kwargs
+        ):
     """
     Function to fit resonances of a power sweep.
 
@@ -288,12 +342,16 @@ def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenu
         Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    guesses : dict, optional
+        Dictionary containing the initial guesses for the fit parameters for lmfit only. The default is {}.
     freq_unit : str, optional
         Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the individual fits. The default is False.
     plot_initial_guesses : boolean, optional
         Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+    **kwargs : dict
+        Additional keyword arguments for lmfit.Model.fit.
 
     Returns
     -------
@@ -327,13 +385,25 @@ def fit_power_sweep(data, freq, power, freq_range=None, power_range=None, attenu
     if port_type == 'notch':
         fit_report['phi0'] = np.array([np.nan]*n_powers)
     if method == 'resonator_tools':
-        return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot)
+        return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,
+                                                port_type,fit_report,plot)
     elif method == 'lmfit':
-        return _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,freq_unit,plot,plot_initial_guesses)
+        return _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,
+                                      port_type,guesses,fit_report,freq_unit,plot,plot_initial_guesses,**kwargs)
     else:
         raise ValueError(f"The method '{method}' is not supported. Use 'resonator_tools' or 'lmfit'")
     
-def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,plot):
+def _fit_power_sweep_resonator_tools(
+        data,
+        freq,
+        power,
+        freq_range,
+        power_range,
+        attenuation,
+        port_type,
+        fit_report,
+        plot
+        ):
     for k,pwr in enumerate(power):
         if power_range:
             if (pwr < power_range[0]) or (pwr > power_range[1]):
@@ -380,7 +450,21 @@ def _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,atte
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
 
-def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,port_type,fit_report,freq_unit,plot,plot_initial_guesses):
+def _fit_power_sweep_lmfit(
+        data,
+        freq,
+        power,
+        freq_range,
+        power_range,
+        attenuation,
+        port_type,
+        user_guesses,
+        fit_report,
+        freq_unit,
+        plot,
+        plot_initial_guesses,
+        **kwargs
+        ):
     for k,pwr in enumerate(power):
         if power_range:
             if (pwr < power_range[0]) or (pwr > power_range[1]):
@@ -414,6 +498,10 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
         if port_type == 'notch':
             guesses['phi0'] = 0
 
+        # overwrite the initial guesses with the ones provided by the user
+        for key, value in user_guesses.items():
+            guesses[key] = value
+
         # create the lmfit.Parameters object and adjust some settings
         params=lmfit.Parameters() # object
         signature = inspect.signature(model_func)
@@ -434,7 +522,7 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
 
         # fit the data
         model = lmfit.Model(model_func, independent_vars=['fdrive'])
-        result = model.fit(data_to_fit, params, fdrive=freq_to_fit, scale_covar=False)
+        result = model.fit(data_to_fit, params, fdrive=freq_to_fit, **kwargs)
         par = result.params
         fit_report["fr"][k] = par['fr'].value
         for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
@@ -450,11 +538,27 @@ def _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,po
         
         if plot:
             print(f'Power = {pwr} dBm')
-            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit, plot_initial_guesses=plot_initial_guesses)
+            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
+                                     plot_initial_guesses=plot_initial_guesses)
             plt.show()
     return fit_report
 
-def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notch',method='resonator_tools',freq_unit='Hz',plot=False, plot_initial_guesses=False):
+def fit_field_sweep(
+        data,
+        freq,
+        field,
+        center_freqs,
+        span,
+        field_range=None,
+        power=-140,
+        port_type='notch',
+        method='resonator_tools',
+        guesses={},
+        freq_unit='Hz',
+        plot=False,
+        plot_initial_guesses=False,
+        **kwargs
+        ):
     """
     Function to fit resonances of a magnetic field sweep.
 
@@ -476,12 +580,16 @@ def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notc
         Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
     method : str, optional
         Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+    guesses : dict, optional
+        Dictionary containing the initial guesses for the fit parameters for lmfit only. The default is {}.
     freq_unit : str, optional
         Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
     plot : boolean, optional
         Enable option to plot the individual fits. The default is False.
     plot_initial_guesses : boolean, optional
         Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+    **kwargs : dict
+        Additional keyword arguments for lmfit.Model.fit.
 
     Returns
     -------
@@ -515,14 +623,29 @@ def fit_field_sweep(data,freq,field,center_freqs,span,power=-140,port_type='notc
     if port_type == 'notch':
         fit_report['phi0'] = np.array([np.nan]*n_fields)
     if method == 'resonator_tools':
-        return _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,power,port_type,fit_report,plot)
+        return _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_range,power,
+                                                port_type,fit_report,plot)
     elif method == 'lmfit':
-        return _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,power,port_type,fit_report,freq_unit,plot,plot_initial_guesses)
+        return _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,
+                                      port_type,guesses,fit_report,freq_unit,plot,plot_initial_guesses,**kwargs)
+    else:
+        raise ValueError(f"The method '{method}' is not supported. Use 'resonator_tools' or 'lmfit'")
     
-def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,plot):
+def _fit_field_sweep_resonator_tools(
+        data,
+        freq,
+        field,
+        center_freqs,
+        span,
+        field_range,
+        power,
+        port_type,
+        fit_report,
+        plot
+        ):
     for k,cfreq in enumerate(center_freqs):
         if field_range:
-            if (field < field_range[0]) or (field > field_range[1]):
+            if (field[k] < field_range[0]) or (field[k] > field_range[1]):
                 continue
         # define port type
         if port_type == 'notch':
@@ -541,7 +664,7 @@ def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_ran
         fit_report['alpha'][k] = alpha
         port.autofit()
         if plot == True:
-            print(f'Field = {field*1e3} mT')
+            print(f'Field = {field[k]*1e3} mT')
             port.plotall()
         # add fitting results to the dictionary
         if port_type == 'notch':
@@ -565,10 +688,25 @@ def _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_ran
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
 
-def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,port_type,fit_report,freq_unit,plot,plot_initial_guesses):
+def _fit_field_sweep_lmfit(
+        data,
+        freq,
+        field,
+        center_freqs,
+        span,
+        field_range,
+        power,
+        port_type,
+        user_guesses,
+        fit_report,
+        freq_unit,
+        plot,
+        plot_initial_guesses,
+        **kwargs
+        ):
     for k,cfreq in enumerate(center_freqs):
         if field_range:
-            if (field < field_range[0]) or (field > field_range[1]):
+            if (field[k] < field_range[0]) or (field[k] > field_range[1]):
                 continue
         # Define port type
         if port_type == 'notch':
@@ -596,6 +734,10 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
         guesses['delay'] = delay
         if port_type == 'notch':
             guesses['phi0'] = 0
+        
+        # overwrite the initial guesses with the ones provided by the user
+        for key, value in user_guesses.items():
+            guesses[key] = value
 
         # create the lmfit.Parameters object and adjust some settings
         params=lmfit.Parameters() # object
@@ -617,7 +759,7 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
 
         # fit the data
         model = lmfit.Model(model_func, independent_vars=['fdrive'])
-        result = model.fit(data_to_fit, params, fdrive=freq_to_fit, scale_covar=False)
+        result = model.fit(data_to_fit, params, fdrive=freq_to_fit, **kwargs)
         par = result.params
         fit_report["fr"][k] = par['fr'].value
         for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
@@ -632,8 +774,9 @@ def _fit_field_sweep_lmfit(data,freq,field,center_freqs,span,field_range,power,p
         fit_report['fitresults'][k] = result
         
         if plot:
-            print(f'Field = {field*1e3} mT')
-            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit, plot_initial_guesses=plot_initial_guesses)
+            print(f'Field = {field[k]*1e3} mT')
+            plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
+                                      plot_initial_guesses=plot_initial_guesses)
             plt.show()
     return fit_report
 
@@ -680,7 +823,59 @@ def fit_multi_peak(data,freq,center_freqs,span,power,attenuation=80,port_type='n
         fitReport["fr"].append(port.fitresults["fr"])
     return fitReport
 
-def fit_correction(fitReport, threshold = 1):
+def fit_correction(fitReport, threshold=1):
+    """
+    Filters and returns corrected fit report dictionary based on error thresholds.
+    This function processes a fit report dictionary, filtering out entries
+    where the relative errors of the quality factors exceed a specified threshold.
+    It returns a corrected fit report dictionary and a list of indices corresponding
+    to the entries that passed the filtering criteria.
+    Parameters:
+    -----------
+    fitReport : dict
+        A dictionary containing fit results and their associated errors. 
+        Expected keys include:
+        - "Qi": Array of internal quality factors.
+        - "Qi_err": Array of errors associated with "Qi".
+        - "Qc": Array of coupling quality factors.
+        - "Qc_err": Array of errors associated with "Qc".
+        - "Ql": Array of loaded quality factors.
+        - "Ql_err": Array of errors associated with "Ql".
+    threshold : float, optional
+        The maximum allowable relative error for each quality factor. 
+        Default is 1 (100%).
+    Returns:
+    --------
+    fitReportCorr : dict
+        A dictionary containing only the entries from the input `fitReport`
+        that passed the filtering criteria. The structure of this dictionary
+        matches the input `fitReport`.
+    good_fit_idx : list
+        A list of indices corresponding to the entries in the input `fitReport`
+        that passed the filtering criteria.
+    Example:
+    --------
+    >>> fitReport = {
+    ...     "Qi": [1000, 2000],
+    ...     "Qi_err": [50, 300],
+    ...     "Qc": [500, 1500],
+    ...     "Qc_err": [25, 200],
+    ...     "Ql": [800, 1800],
+    ...     "Ql_err": [40, 250],
+    ... }
+    >>> fit_correction(fitReport, threshold=0.1)
+    (
+        {
+            "Qi": [1000],
+            "Qi_err": [50],
+            "Qc": [500],
+            "Qc_err": [25],
+            "Ql": [800],
+            "Ql_err": [40],
+        },
+        [0]
+    )
+    """
     # create empty dictionary
     fitReportCorr = {}
     good_fit_idx = []
