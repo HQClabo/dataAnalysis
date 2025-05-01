@@ -19,7 +19,7 @@ import dataAnalysis.plotting_functions as myplt
 
 def S21_resonator_notch(fdrive, fr, kappa, kappa_c, a, alpha, delay, phi0):
         delta_r = fdrive - fr
-        S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)))) / (delta_r - 1j/2*(kappa))
+        S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - 1j/2*(kappa))
         environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
         return S21 * environment
 
@@ -33,9 +33,9 @@ def guess_resonator_params(f, data, fraction=0.1, port_type='notch'):
     # do a Lorentzian fit to the magnitude of complex to get the resonance frequency and linewidth
     model = lmfit.models.LorentzianModel() + lmfit.models.ConstantModel()
     model.set_param_hint('center', value=f.mean(), vary=True)
-    sigma = f.ptp()/10
+    sigma = np.ptp(f)/10
     model.set_param_hint('sigma', value=sigma, vary=True)
-    model.set_param_hint('amplitude', value=-abs(data).ptp() * sigma*np.pi, max=0, vary=True)
+    model.set_param_hint('amplitude', value=-np.ptp(abs(data)) * sigma*np.pi, max=0, vary=True)
     model.set_param_hint('c', value=np.median(abs(data)), vary=True)
     result = model.fit(data=abs(data), x=f)
     fr = result.best_values['center']
@@ -298,6 +298,8 @@ def _fit_frequency_sweep_lmfit(
     fit_report['a'] = par['a'].value
     fit_report['alpha'] = par['alpha'].value
     fit_report['delay'] = par['delay'].value
+    if port_type == 'notch':
+        fit_report['phi0'] = par['phi0'].value
     fit_report["Nph"] = get_photons_in_resonator(power, result.best_values ,freq_unit=freq_unit ,unit='dBm')
     fit_report["single_photon_W"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='watt')
     fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='dBm')
@@ -531,6 +533,8 @@ def _fit_power_sweep_lmfit(
         fit_report['a'][k] = par['a'].value
         fit_report['alpha'][k] = par['alpha'].value
         fit_report['delay'][k] = par['delay'].value
+        if port_type == 'notch':
+            fit_report['phi0'][k] = par['phi0'].value
         fit_report["Nph"][k] = get_photons_in_resonator(pwr - attenuation, result.best_values, freq_unit=freq_unit ,unit='dBm')
         fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='watt')
         fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='dBm')
