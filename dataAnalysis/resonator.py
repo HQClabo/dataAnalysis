@@ -207,7 +207,7 @@ class FrequencyScanVNA(DataSetVNA):
             try:
                 cData = self.cData_norm
             except AttributeError:
-                raise Warning("Normalized data not found. Using raw data instead.")
+                print("Warning: Normalized data not found. Using raw data instead.")
         freq_scaling = resfit.get_frequency_scaling(freq_unit)
         self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq/freq_scaling, freq_range, power,
                                                      port_type, method, guesses, freq_unit, do_plots, plot_initial_guesses, **kwargs)
