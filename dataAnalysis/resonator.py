@@ -160,6 +160,23 @@ class FrequencyScanVNA(DataSetVNA):
             self.phase = self.phase[freq_slice]
             self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
+    def cut_data_freq_slice(self, lower_freq=None, upper_freq=None):
+        freq_step = self.freq[1] - self.freq[0]
+        lower_index = int((lower_freq - self.freq[0])/freq_step) if lower_freq else 0
+        upper_index = int((upper_freq - self.freq[0])/freq_step) if upper_freq else -1
+
+        self.freq = self.freq[lower_index:upper_index]
+        self.mag = self.mag[lower_index:upper_index]
+        self.phase = self.phase[lower_index:upper_index]
+        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+        try:
+            self.cData_norm = self.cData_norm[lower_index:upper_index]
+            self.mag_norm = self.mag_norm[lower_index:upper_index]
+            self.phase_norm = self.phase_norm[lower_index:upper_index]
+        except:
+            pass
+
+
     def analyze(
             self,
             freq_range=None,

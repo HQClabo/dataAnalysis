@@ -527,7 +527,7 @@ class DataSet():
 
     
     def find_slice(self, array, values):
-        idx_min = (np.abs(array - values[0])).argmin()
-        idx_max = (np.abs(array - values[1])).argmin() + 1
+        idx_min = (np.abs(array - values[0])).argmin() if values[0] else 0
+        idx_max = (np.abs(array - values[1])).argmin() + 1 if values[1] else -1
         return slice(idx_min,idx_max)
 
