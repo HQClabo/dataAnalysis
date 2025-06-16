@@ -120,11 +120,11 @@ class DataSetVNA(DataSet):
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
-    def plot_1D_normalized(self):
-        return self.plot_1D([self.name_mag+'_normalized', self.name_phase+'_normalized'])
+    def plot_1D_normalized(self, **kwargs):
+        return self.plot_1D([self.name_mag+'_normalized', self.name_phase+'_normalized'], **kwargs)
 
-    def plot_2D_normalized(self):
-         return self.plot_2D([self.name_mag+'_normalized', self.name_phase+'_normalized'])
+    def plot_2D_normalized(self, **kwargs):
+         return self.plot_2D([self.name_mag+'_normalized', self.name_phase+'_normalized'], **kwargs)
 
 
 class FrequencyScanVNA(DataSetVNA):
@@ -224,7 +224,7 @@ class FrequencyScanVNA(DataSetVNA):
             try:
                 cData = self.cData_norm
             except AttributeError:
-                raise Warning("Normalized data not found. Using raw data instead.")
+                print("Warning: Normalized data not found. Using raw data instead.")
         freq_scaling = resfit.get_frequency_scaling(freq_unit)
         self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq/freq_scaling, freq_range, power,
                                                      port_type, method, guesses, freq_unit, do_plots, plot_initial_guesses, **kwargs)
