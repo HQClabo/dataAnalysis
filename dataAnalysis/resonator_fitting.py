@@ -221,6 +221,7 @@ def _fit_frequency_sweep_resonator_tools(
     fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm')
     fit_report["fr"] = port.fitresults["fr"]
     fit_report['fitresults'] = port.fitresults
+    fit_report['z_data_sim'] = port.z_data_sim
     return fit_report
 
 def _fit_frequency_sweep_lmfit(
