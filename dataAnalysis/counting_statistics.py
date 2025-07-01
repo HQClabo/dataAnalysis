@@ -19,17 +19,19 @@ from scipy.signal import find_peaks
 from sklearn.mixture import GaussianMixture
 from scipy.stats import norm
 from scipy.optimize import curve_fit
+import sys
 
-from .base import DataSet
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-
-class PulseTunnelingAnalysis:
+from dataAnalysis.base import DataSet
+class PulseTunnelingAnalysis(DataSet):
     """
     A class for analyzing pulse train traces to extract tunneling times (tau_in, tau_out)
     and compute corresponding tunneling rates (Gamma_in, Gamma_out).
     """
-
-    def __init__(self, time_data, voltage_data, pulse_amplitudes, run_id, save_path):
+      
+    def __init__(self,exp,run_id = None, station = None, save_path=None,charge_state = 'low'):
         """
         Parameters:
             time_data (2D np.ndarray): Time traces (shape: [N_pulse, N_timepoints])
@@ -38,14 +40,18 @@ class PulseTunnelingAnalysis:
             run_id (int): Identifier for the measurement run
             save_path (str): Directory to save plots and results
         """
-        self.time_data = time_data
-        self.voltage_data = voltage_data
-        self.pulse_amplitudes = pulse_amplitudes
-        self.run_id = run_id
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        self.time = self.independent_parameters['y']['values']
+        self.pulse_amplitudes = self.independent_parameters['x']['values']
+        self.CS_values = self.dependent_parameters['param_0']['values'].T
         self.save_path = save_path
-        os.makedirs(save_path, exist_ok=True)
-
-    def extract_taus(self, level=0.02, threshold=0.6, plot=True):
+        self.run_id = run_id
+        self.charge_state = charge_state # Charge state 'high' if voltage level is high level for hall occupation. 'low' for no hall occupation
+        
+        if type(save_path) == str:
+            os.makedirs(save_path,exist_ok = True)
+        
+    def extract_taus(self, level=0.02, threshold=0.6, plot=False):
         """
         Perform tau extraction and Gamma calculation for all amplitudes.
 
@@ -58,40 +64,51 @@ class PulseTunnelingAnalysis:
             pd.DataFrame: DataFrame summarizing tau and Gamma statistics for each amplitude
         """
         results = []
-        unique_amps = np.unique(self.pulse_amplitudes)
 
-        for amp in unique_amps:
-            idx = np.where(self.pulse_amplitudes == amp)[0]
-            if len(idx) == 0:
-                continue
-
-            time = self.time_data[idx[0], :]
-            voltage = self.voltage_data[idx[0], :]
-            tau_in, tau_out = self._extract_single_trace(time, voltage, level, threshold,
+        for idx in range(len(self.pulse_amplitudes)):
+                        
+            time = self.time
+            amp = self.pulse_amplitudes[idx]
+            CS_values = self.CS_values[idx]
+            
+            tau_in, tau_out = self._extract_single_trace(time, CS_values, level, threshold,
                                                          plot_figure=plot, amplitude=amp)
-
+            
             tau_in_arr = np.array(tau_in)
             tau_out_arr = np.array(tau_out)
+                    
+            tau_in_mean = np.mean(tau_in_arr) if len(tau_in_arr) > 0 else np.nan
+            tau_out_mean = np.mean(tau_out_arr) if len(tau_out_arr) > 0 else np.nan
+            tau_in_std = np.std(tau_in_arr) if len(tau_in_arr) > 0 else 0
+            tau_out_std = np.std(tau_out_arr) if len(tau_out_arr) > 0 else 0
+            n_in = len(tau_in_arr)
+            n_out = len(tau_out_arr)
 
-            gamma_in_arr = 1 / tau_in_arr[tau_in_arr > 0] if len(tau_in_arr[tau_in_arr > 0]) > 0 else np.array([])
-            gamma_out_arr = 1 / tau_out_arr[tau_out_arr > 0] if len(tau_out_arr[tau_out_arr > 0]) > 0 else np.array([])
+            gamma_in = 1 / tau_in_mean if tau_in_mean > 0 else np.nan
+            gamma_out = 1 / tau_out_mean if tau_out_mean > 0 else np.nan
+
+            gamma_in_std = (tau_in_std / (tau_in_mean ** 2 * np.sqrt(n_in))) if tau_in_mean > 0 and n_in > 0 else np.nan # I am not sure about this. 
+            gamma_out_std = (tau_out_std / (tau_out_mean ** 2 * np.sqrt(n_out))) if tau_out_mean > 0 and n_out > 0 else np.nan 
 
             results.append({
                 "Amplitude": amp,
-                "tau_in_mean": np.mean(tau_in_arr) if len(tau_in_arr) > 0 else 0,
-                "tau_in_std": np.std(tau_in_arr) if len(tau_in_arr) > 0 else 0,
-                "tau_in_n": len(tau_in_arr),
-                "tau_out_mean": np.mean(tau_out_arr) if len(tau_out_arr) > 0 else 0,
-                "tau_out_std": np.std(tau_out_arr) if len(tau_out_arr) > 0 else 0,
-                "tau_out_n": len(tau_out_arr),
-                "Gamma_in": np.mean(gamma_in_arr) if len(gamma_in_arr) > 0 else np.nan,
-                "Gamma_in_std": np.std(gamma_in_arr)/np.sqrt(len(gamma_in_arr)) if len(gamma_in_arr) > 0 else np.nan,
-                "Gamma_out": np.mean(gamma_out_arr) if len(gamma_out_arr) > 0 else np.nan,
-                "Gamma_out_std": np.std(gamma_out_arr)/np.sqrt(len(gamma_out_arr)) if len(gamma_out_arr) > 0 else np.nan,
-            })
+                "tau_in_mean": tau_in_mean,
+                "tau_in_std": tau_in_std,
+                "tau_in_n": n_in,
+                "tau_out_mean": tau_out_mean,
+                "tau_out_std": tau_out_std,
+                "tau_out_n": n_out,
+                "Gamma_in": gamma_in,
+                "Gamma_in_std": gamma_in_std,
+                "Gamma_out": gamma_out,
+                "Gamma_out_std": gamma_out_std,
+                "tau_in": tau_in,
+                "tau_out": tau_out
+                })
 
         self.df_results = pd.DataFrame(results)
-        self.df_results.to_csv(os.path.join(self.save_path, f"tau_summary_Run{self.run_id}.csv"), index=False)
+        if type(self.save_path) == str:
+            self.df_results.to_csv(os.path.join(self.save_path, f"tau_summary_Run{self.run_id}.csv"), index=False)
         return self.df_results
 
     def _extract_single_trace(self, time, voltage, level, threshold, plot_figure=False, amplitude=None):
@@ -138,11 +155,14 @@ class PulseTunnelingAnalysis:
                     break
                 k += 1
 
-        if plot_figure:
+        if plot_figure and type(self.save_path) == str:
             self._plot_trace(time, voltage, up_time, up_event, up_peaks,
                              down_time, down_event, down_peaks, amplitude)
-
-        return tau_in_array, tau_out_array
+        
+        if self.charge_state == 'low':
+            return tau_in_array, tau_out_array
+        else:
+            return tau_out_array, tau_in_array
 
     def _plot_trace(self, time, voltage, up_time, up_event, up_peaks,
                     down_time, down_event, down_peaks, amplitude):
@@ -197,59 +217,53 @@ class PulseTunnelingAnalysis:
         plt.legend()
         plt.tight_layout()
         plt.show()
-
-
+        
 
 class StandardGateSweepAnalysis(DataSet):
     """
     A class to analyze voltage traces taken while sweeping gate voltage (Vg),
     using threshold crossing and histogram-based techniques to extract tau and Gamma.
     """
-
-    def __init__(self, exp, run_id=None, station=None, save_path=None, diff_guess=None):
+    def __init__(self, exp, run_id=None, station=None, save_path=None, diff_guess=None,charge_state='low'):
         super().__init__(exp=exp, run_id=run_id, station=station)
         self.time = self.independent_parameters['y']['values']
         self.gate_voltage = self.independent_parameters['x']['values']
         self.CS_values = self.dependent_parameters['param_0']['values'].T
         self.save_path = save_path
         self.diff_guess = diff_guess
-
-    # def __init__(self, time_data, voltage_data, gate_voltages, run_id, save_path,diff_guess = 0.012):
-    #     self.time_data = time_data
-    #     self.voltage_data = voltage_data
-    #     self.gate_voltages = gate_voltages
-    #     self.run_id = run_id
-    #     self.save_path = save_path
-    #     self.diff_guess = diff_guess # This is the rough estimation of voltage state difference in V.
-    #     os.makedirs(save_path, exist_ok=True)
-
-    def extract_taus(self, plot=True):
+        self.run_id = run_id
+        self.charge_state = charge_state # Charge state 'high' if voltage level is high level for hall occupation. 'low' for no hall occupation
+        
+        if type(save_path) == str:
+            os.makedirs(save_path,exist_ok = True)
+            
+    def extract_taus(self, plot=False):
         results = []
 
         for idx in range(len(self.CS_values)):
-        # for idx in range(self.voltage_data.shape[0]):
-            # time, voltage = self._get_single_trace(idx)
-            # gate_voltage = self._get_gate_voltage(idx)
             time = self.time
             gate_voltage = self.gate_voltage[idx]
             CS_values = self.CS_values[idx]
-
+            
             threshold, means, covs, weights, use_gmm = self._estimate_threshold(CS_values)
             rise_times, fall_times = self._detect_events(time, CS_values, threshold, means)
+            
             tau_in, tau_out = self._compute_taus(rise_times, fall_times)
+            
 
             if len(tau_in) < 2 or len(tau_out) < 2:
                 continue
 
-            stats = self._summarize_taus(tau_in, tau_out, gate_voltage)
+            stats = self._summarize_taus(tau_in, tau_out, gate_voltage,fall_times)
             results.append(stats)
 
-            if plot:
+            if plot and type(self.save_path) == str:
                 self._plot_trace(time, CS_values, threshold, rise_times, fall_times,
                                  means, covs, weights, use_gmm, gate_voltage, idx)
 
         self.df_results = pd.DataFrame(results)
-        self.df_results.to_csv(os.path.join(self.save_path, f"standard_tau_summary_Run{self.run_id}.csv"), index=False)
+        if type(self.save_path) == str:
+            self.df_results.to_csv(os.path.join(self.save_path, f"standard_tau_summary_Run{self.run_id}.csv"), index=False)
         return self.df_results
 
     def plot_gamma_vs_gate_voltage(self):
@@ -274,12 +288,49 @@ class StandardGateSweepAnalysis(DataSet):
         plt.legend()
         plt.tight_layout()
         plt.show()
+    
+    def plot_tau_hist(self, Vg_index=0, bins=50):
+        """
+        Plot histograms of tau_in and tau_out for a given gate voltage index.
+        
+        Parameters:
+        Vg_index (int): Index of the gate voltage point in df_results to plot.
+        bins (int): Number of histogram bins.
+        """
+        if not hasattr(self, 'df_results'):
+            raise RuntimeError("Please run extract_taus() first to compute tau/Gamma values.")
+            
+        if Vg_index >= len(self.df_results):
+            raise IndexError(f"Vg_index {Vg_index} is out of bounds for result length {len(self.df_results)}.")
 
-    # def _get_single_trace(self, idx):
-    #     return self.time_data[idx, :], self.voltage_data[idx, :]
+        row = self.df_results.iloc[Vg_index]
+        tau_in = row['tau_in']
+        tau_out = row['tau_out']
+        Vg = row['GateVoltage'] * 1e3  # Convert to mV for labeling
 
-    # def _get_gate_voltage(self, idx):
-    #     return self.gate_voltages[idx, 0] if self.gate_voltages.ndim == 2 else self.gate_voltages[idx]
+        if len(tau_in) == 0 or len(tau_out) == 0:
+            print(f"[!] No tau data found at index {Vg_index} (Vg = {Vg:.3f} mV)")
+            return
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        fig.suptitle(f"Tunneling Time Histograms @ Vg = {Vg:.2f} mV", fontsize=14)
+
+        axes[0].hist(tau_in, bins=bins, color='green', alpha=0.7)
+        axes[0].set_title(r"$\tau_{\mathrm{in}}$ distribution")
+        axes[0].set_xlabel("Time (s)")
+        axes[0].set_ylabel("Count")
+        axes[0].grid(True)
+
+        axes[1].hist(tau_out, bins=bins, color='blue', alpha=0.7)
+        axes[1].set_title(r"$\tau_{\mathrm{out}}$ distribution")
+        axes[1].set_xlabel("Time (s)")
+        axes[1].set_ylabel("Count")
+        axes[1].grid(True)
+
+        plt.tight_layout()
+        plt.show()
+        
+        print(f"tau_in: {np.mean(tau_in)} and tau_out: {np.mean(tau_out)}")
 
     def _estimate_threshold(self, voltage):
         diff_guess = self.diff_guess
@@ -334,7 +385,17 @@ class StandardGateSweepAnalysis(DataSet):
                 state_low = True
 
         return time[rise_indices], time[fall_indices]
-
+    
+    def _cumulants(self,time, fall_time, time_slice = 0.1):
+        
+        bins_ = np.arange(0, np.max(time) + time_slice, time_slice)
+        counts_, _ = np.histogram(fall_time, bins = bins_)
+        
+        c1 = np.mean(counts_)
+        c2 = np.var(counts_)
+        
+        return c1, c2
+    
     def _compute_taus(self, rise_times, fall_times):
         
         if len(rise_times) < 2 or len(fall_times) < 2:
@@ -345,33 +406,54 @@ class StandardGateSweepAnalysis(DataSet):
         fall_times = fall_times[:min_len]
 
         if rise_times[0] < fall_times[0]:
-            tau_out = fall_times - rise_times
-            tau_in = rise_times[1:] - fall_times[:-1]
+            tau_in = fall_times - rise_times
+            tau_out = rise_times[1:] - fall_times[:-1]
         else:
-            tau_in = rise_times - fall_times
-            tau_out = fall_times[1:] - rise_times[:-1]
+            tau_out = rise_times - fall_times
+            tau_in = fall_times[1:] - rise_times[:-1]
+            
+        if self.charge_state == 'low':
+            return tau_in,tau_out
+        else:
+            return tau_out,tau_in
 
-        return tau_in, tau_out
-
-    def _summarize_taus(self, tau_in, tau_out, Vg):
+    def _summarize_taus(self, tau_in, tau_out, Vg,fall_time):
+        
         tau_in_arr = np.array(tau_in)
         tau_out_arr = np.array(tau_out)
-        gamma_in_arr = 1 / tau_in_arr[tau_in_arr > 0] if len(tau_in_arr[tau_in_arr > 0]) > 0 else np.array([])
-        gamma_out_arr = 1 / tau_out_arr[tau_out_arr > 0] if len(tau_out_arr[tau_out_arr > 0]) > 0 else np.array([])
+                
+        tau_in_mean = np.mean(tau_in_arr) if len(tau_in_arr) > 0 else np.nan
+        tau_out_mean = np.mean(tau_out_arr) if len(tau_out_arr) > 0 else np.nan
+        tau_in_std = np.std(tau_in_arr) if len(tau_in_arr) > 0 else 0
+        tau_out_std = np.std(tau_out_arr) if len(tau_out_arr) > 0 else 0
+        n_in = len(tau_in_arr)
+        n_out = len(tau_out_arr)
+
+        gamma_in = 1 / tau_in_mean if tau_in_mean > 0 else np.nan
+        gamma_out = 1 / tau_out_mean if tau_out_mean > 0 else np.nan
+
+        gamma_in_std = (tau_in_std / (tau_in_mean ** 2 * np.sqrt(n_in))) if tau_in_mean > 0 and n_in > 0 else np.nan
+        gamma_out_std = (tau_out_std / (tau_out_mean ** 2 * np.sqrt(n_out))) if tau_out_mean > 0 and n_out > 0 else np.nan
+        
+        c1,c2 = self._cumulants(self.time, fall_time,time_slice=0.2) 
 
         return {
             "GateVoltage": Vg,
-            "tau_in_mean": np.mean(tau_in_arr) if len(tau_in_arr) > 0 else 0,
-            "tau_in_std": np.std(tau_in_arr) if len(tau_in_arr) > 0 else 0,
-            "tau_in_n": len(tau_in_arr),
-            "tau_out_mean": np.mean(tau_out_arr) if len(tau_out_arr) > 0 else 0,
-            "tau_out_std": np.std(tau_out_arr) if len(tau_out_arr) > 0 else 0,
-            "tau_out_n": len(tau_out_arr),
-            "Gamma_in": np.mean(gamma_in_arr) if len(gamma_in_arr) > 0 else np.nan,
-            "Gamma_in_std": np.std(gamma_in_arr) / np.sqrt(len(gamma_in_arr)) if len(gamma_in_arr) > 0 else np.nan,
-            "Gamma_out": np.mean(gamma_out_arr) if len(gamma_out_arr) > 0 else np.nan,
-            "Gamma_out_std": np.std(gamma_out_arr) / np.sqrt(len(gamma_out_arr)) if len(gamma_out_arr) > 0 else np.nan,
-        }
+            "tau_in_mean": tau_in_mean,
+            "tau_in_std": tau_in_std,
+            "tau_in_n": n_in,
+            "tau_out_mean": tau_out_mean,
+            "tau_out_std": tau_out_std,
+            "tau_out_n": n_out,
+            "Gamma_in": gamma_in,
+            "Gamma_in_std": gamma_in_std,
+            "Gamma_out": gamma_out,
+            "Gamma_out_std": gamma_out_std,
+            "tau_in": tau_in,
+            "tau_out": tau_out,
+            "c1": c1,
+            "c2": c2
+            }
 
     def _plot_trace(self, time, voltage, threshold, rise_times, fall_times,
                      means, covs, weights, use_gmm, Vg, idx):
@@ -408,6 +490,113 @@ class StandardGateSweepAnalysis(DataSet):
         plt.tight_layout()
         plt.savefig(os.path.join(self.save_path, f'Run_{self.run_id}_tunneling_summary_index_{idx}.png'), dpi=300)
         plt.close()
+
+
+class counting_analysis:
+    """
+    A class to compare tunneling rates (Gamma) extracted from standard gate sweeps and pulsed measurements.
+    """
+
+    def __init__(self,exp,pulse_analysis_class: PulseTunnelingAnalysis, standard_analysis_class: StandardGateSweepAnalysis,
+                 pulse_center, run_id_standard, run_id_pulse,diff_guess_standard,save_path=None,charge_state='low'):
+        """
+        Parameters:
+            pulse_analysis_class (PulseTunnelingAnalysis): Class for pulse-based analysis
+            standard_analysis_class (StandardGateSweepAnalysis): Class for standard gate sweep analysis
+            database_path (str): Path to the QCoDeS database file
+            pulse_center (float): Center voltage for translating pulse amplitudes to gate voltages
+            run_id_standard (int): Run ID for the standard sweep measurement
+            run_id_pulse (int): Run ID for the pulse measurement
+            save_path (str): Directory to save plots and results
+            cutoff (float): Pulse amplitude cutoff (in same units as amplitudes) for including pulse-based data
+        """
+
+        self.pulse_analysis = pulse_analysis_class(exp, save_path=save_path,charge_state=charge_state,run_id = run_id_pulse)
+        self.standard_analysis = standard_analysis_class(exp, save_path=save_path,diff_guess=diff_guess_standard,charge_state=charge_state,run_id=run_id_standard)
+        self.pulse_center = pulse_center
+        self.save_path = save_path
+        
+        if not hasattr(self.standard_analysis, 'df_results'):
+            result1 = self.standard_analysis.extract_taus(plot=False)
+        else:
+            result1 = self.standard_analysis.df_results
+        if not hasattr(self.pulse_analysis, 'df_results'):
+            result2 = self.pulse_analysis.extract_taus(plot=False)
+        else:
+            result2 = self.pulse_analysis.df_results
+        
+        self.result1 = result1
+        self.result2 = result2
+        
+        if type(self.save_path) == str:
+            self.result1.to_csv(os.path.join(self.save_path, f"standard_tau_summary_Run{run_id_standard}.csv"), index=False)
+            self.result2.to_csv(os.path.join(self.save_path, f"pulsed_tau_summary_Run{run_id_pulse}.csv"), index=False)
+        
+    def plot_combined_gamma(self,cutoff=2e-3):
+        """
+        Compare Gamma_in and Gamma_out from standard and pulse-based measurements on a log-scaled plot.
+        """
+        # Standard data
+        standard_voltage = self.result1['GateVoltage']
+        standard_gamma_in = self.result1['Gamma_in'] / 1e3
+        standard_gamma_in_std = self.result1['Gamma_in_std'] / 1e3
+        standard_gamma_out = self.result1['Gamma_out'] / 1e3
+        standard_gamma_out_std = self.result1['Gamma_out_std'] / 1e3
+        
+        standard_c1 = self.result1['c1']
+        standard_c2 = self.result1['c2']
+
+        # Pulse data
+        pulse_amp = self.result2['Amplitude'].values
+        pulse_gamma_in = self.result2['Gamma_in'].values / 1e3
+        pulse_gamma_in_std = self.result2['Gamma_in_std'].values / 1e3
+        pulse_gamma_out = self.result2['Gamma_out'].values / 1e3
+        pulse_gamma_out_std = self.result2['Gamma_out_std'].values / 1e3
+
+        valid_idx = pulse_amp > cutoff
+        pulse_voltage_out = pulse_amp[valid_idx] /  2 + self.pulse_center
+        pulse_voltage_in = -pulse_amp[valid_idx] /  2 + self.pulse_center
+        
+        fig, axs = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+
+        # Gamma plot
+        axs[0].errorbar(standard_voltage * 1e3, standard_gamma_in, yerr=standard_gamma_in_std, fmt='o-', capsize=4,
+                        label=r'$\Gamma_{in}$(Standard)', mfc='tab:green', mec='tab:green', color='tab:green', alpha=0.5)
+        axs[0].errorbar(standard_voltage * 1e3, standard_gamma_out, yerr=standard_gamma_out_std, fmt='s--', capsize=4,
+                        label=r'$\Gamma_{out}$(Standard)', mfc='tab:red', mec='tab:red', color='tab:red', alpha=0.5)
+        axs[0].errorbar(pulse_voltage_in * 1e3, pulse_gamma_in[valid_idx], yerr=pulse_gamma_in_std[valid_idx], fmt='d-', capsize=4,
+                        label=r'$\Gamma_{in}$(Pulse)', mfc='tab:green', mec='tab:green', color='tab:green', alpha=0.5)
+        axs[0].errorbar(pulse_voltage_out * 1e3, pulse_gamma_out[valid_idx], yerr=pulse_gamma_out_std[valid_idx], fmt='*--', capsize=4,
+                        label=r'$\Gamma_{out}$(Pulse)', mfc='tab:red', mec='tab:red', color='tab:red', alpha=0.5)
+        axs[0].set_ylabel(r'$\Gamma$ (kHz)', fontsize=12)
+        axs[0].set_yscale('log')
+        axs[0].set_title(r'Tunneling Rate $\Gamma$ vs Gate Voltage', fontsize=14)
+        axs[0].grid(True)
+        axs[0].legend()
+
+        # Cumulants plot
+        ax2 = axs[1]
+        ax2.plot(standard_voltage * 1e3, standard_c1, 'o-', color='tab:blue', label='$C_1$')
+        ax2.plot(standard_voltage * 1e3, standard_c2, 's--', color='tab:orange', label='$C_2$')
+        ax2.set_xlabel('Gate voltage (mV)', fontsize=12)
+        ax2.set_ylabel('Cumulant value', fontsize=12)
+        ax2.set_title('Cumulants vs Gate Voltage', fontsize=14)
+        ax2.grid(True)
+
+        # Add c2/c1 on secondary y-axis
+        ax3 = ax2.twinx()
+        ratio = np.array(standard_c2) / np.array(standard_c1)
+        ax3.plot(standard_voltage * 1e3, ratio, '^-', color='tab:purple', label='$C_2 / C_1$')
+        ax3.set_ylabel(r'$C_2 / C_1$', fontsize=12)
+
+        # Combine legends from both y-axes
+        lines1, labels1 = ax2.get_legend_handles_labels()
+        lines2, labels2 = ax3.get_legend_handles_labels()
+        ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+        ax3.set_ylim((-0.2,2.2)); ax2.set_ylim((-0.2,2.2))
+        
+
+
 
 
 
