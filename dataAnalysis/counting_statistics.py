@@ -20,6 +20,8 @@ from sklearn.mixture import GaussianMixture
 from scipy.stats import norm
 from scipy.optimize import curve_fit
 
+from .base import DataSet
+
 
 class PulseTunnelingAnalysis:
     """
@@ -198,29 +200,42 @@ class PulseTunnelingAnalysis:
 
 
 
-class StandardGateSweepAnalysis:
+class StandardGateSweepAnalysis(DataSet):
     """
     A class to analyze voltage traces taken while sweeping gate voltage (Vg),
     using threshold crossing and histogram-based techniques to extract tau and Gamma.
     """
-    def __init__(self, time_data, voltage_data, gate_voltages, run_id, save_path,diff_guess = 0.012):
-        self.time_data = time_data
-        self.voltage_data = voltage_data
-        self.gate_voltages = gate_voltages
-        self.run_id = run_id
+
+    def __init__(self, exp, run_id=None, station=None, save_path=None, diff_guess=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        self.time = self.independent_parameters['y']['values']
+        self.gate_voltage = self.independent_parameters['x']['values']
+        self.CS_values = self.dependent_parameters['param_0']['values'].T
         self.save_path = save_path
-        self.diff_guess = diff_guess # This is the rough estimation of voltage state difference in V.
-        os.makedirs(save_path, exist_ok=True)
+        self.diff_guess = diff_guess
+
+    # def __init__(self, time_data, voltage_data, gate_voltages, run_id, save_path,diff_guess = 0.012):
+    #     self.time_data = time_data
+    #     self.voltage_data = voltage_data
+    #     self.gate_voltages = gate_voltages
+    #     self.run_id = run_id
+    #     self.save_path = save_path
+    #     self.diff_guess = diff_guess # This is the rough estimation of voltage state difference in V.
+    #     os.makedirs(save_path, exist_ok=True)
 
     def extract_taus(self, plot=True):
         results = []
 
-        for idx in range(self.voltage_data.shape[0]):
-            time, voltage = self._get_single_trace(idx)
-            gate_voltage = self._get_gate_voltage(idx)
+        for idx in range(len(self.CS_values)):
+        # for idx in range(self.voltage_data.shape[0]):
+            # time, voltage = self._get_single_trace(idx)
+            # gate_voltage = self._get_gate_voltage(idx)
+            time = self.time
+            gate_voltage = self.gate_voltage[idx]
+            CS_values = self.CS_values[idx]
 
-            threshold, means, covs, weights, use_gmm = self._estimate_threshold(voltage)
-            rise_times, fall_times = self._detect_events(time, voltage, threshold, means)
+            threshold, means, covs, weights, use_gmm = self._estimate_threshold(CS_values)
+            rise_times, fall_times = self._detect_events(time, CS_values, threshold, means)
             tau_in, tau_out = self._compute_taus(rise_times, fall_times)
 
             if len(tau_in) < 2 or len(tau_out) < 2:
@@ -230,7 +245,7 @@ class StandardGateSweepAnalysis:
             results.append(stats)
 
             if plot:
-                self._plot_trace(time, voltage, threshold, rise_times, fall_times,
+                self._plot_trace(time, CS_values, threshold, rise_times, fall_times,
                                  means, covs, weights, use_gmm, gate_voltage, idx)
 
         self.df_results = pd.DataFrame(results)
@@ -260,11 +275,11 @@ class StandardGateSweepAnalysis:
         plt.tight_layout()
         plt.show()
 
-    def _get_single_trace(self, idx):
-        return self.time_data[idx, :], self.voltage_data[idx, :]
+    # def _get_single_trace(self, idx):
+    #     return self.time_data[idx, :], self.voltage_data[idx, :]
 
-    def _get_gate_voltage(self, idx):
-        return self.gate_voltages[idx, 0] if self.gate_voltages.ndim == 2 else self.gate_voltages[idx]
+    # def _get_gate_voltage(self, idx):
+    #     return self.gate_voltages[idx, 0] if self.gate_voltages.ndim == 2 else self.gate_voltages[idx]
 
     def _estimate_threshold(self, voltage):
         diff_guess = self.diff_guess
