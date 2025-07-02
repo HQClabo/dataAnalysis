@@ -596,7 +596,7 @@ class counting_analysis:
         ax3.set_ylim((-0.2,2.2)); ax2.set_ylim((-0.2,2.2))
         
 
-
+        
 
 
 
