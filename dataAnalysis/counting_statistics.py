@@ -224,7 +224,7 @@ class StandardGateSweepAnalysis(DataSet):
     A class to analyze voltage traces taken while sweeping gate voltage (Vg),
     using threshold crossing and histogram-based techniques to extract tau and Gamma.
     """
-    def __init__(self, exp, run_id=None, station=None, save_path=None, diff_guess=None,charge_state='low'):
+    def __init__(self, exp, run_id=None, station=None, save_path=None, diff_guess=None,charge_state='low',time_slice=0.5):
         super().__init__(exp=exp, run_id=run_id, station=station)
         self.time = self.independent_parameters['y']['values']
         self.gate_voltage = self.independent_parameters['x']['values']
@@ -232,6 +232,7 @@ class StandardGateSweepAnalysis(DataSet):
         self.save_path = save_path
         self.diff_guess = diff_guess
         self.run_id = run_id
+        self.time_slice = time_slice
         self.charge_state = charge_state # Charge state 'high' if voltage level is high level for hall occupation. 'low' for no hall occupation
         
         if type(save_path) == str:
@@ -435,7 +436,7 @@ class StandardGateSweepAnalysis(DataSet):
         gamma_in_std = (tau_in_std / (tau_in_mean ** 2 * np.sqrt(n_in))) if tau_in_mean > 0 and n_in > 0 else np.nan
         gamma_out_std = (tau_out_std / (tau_out_mean ** 2 * np.sqrt(n_out))) if tau_out_mean > 0 and n_out > 0 else np.nan
         
-        c1,c2 = self._cumulants(self.time, fall_time,time_slice=0.2) 
+        c1,c2 = self._cumulants(self.time, fall_time,time_slice=self.time_slice) 
 
         return {
             "GateVoltage": Vg,
@@ -498,7 +499,7 @@ class counting_analysis:
     """
 
     def __init__(self,exp,pulse_analysis_class: PulseTunnelingAnalysis, standard_analysis_class: StandardGateSweepAnalysis,
-                 pulse_center, run_id_standard, run_id_pulse,diff_guess_standard,save_path=None,charge_state='low'):
+                 pulse_center, run_id_standard, run_id_pulse,diff_guess_standard,save_path=None,charge_state='low',time_slice = 0.5):
         """
         Parameters:
             pulse_analysis_class (PulseTunnelingAnalysis): Class for pulse-based analysis
@@ -508,13 +509,16 @@ class counting_analysis:
             run_id_standard (int): Run ID for the standard sweep measurement
             run_id_pulse (int): Run ID for the pulse measurement
             save_path (str): Directory to save plots and results
+            charge_state (str): "low" if occupied hall state correspondes to lower charge sensor voltage, "high" for otherwise. 
             cutoff (float): Pulse amplitude cutoff (in same units as amplitudes) for including pulse-based data
+            time_slice (float): Time slice for cumulant calculation
         """
-
+        
         self.pulse_analysis = pulse_analysis_class(exp, save_path=save_path,charge_state=charge_state,run_id = run_id_pulse)
-        self.standard_analysis = standard_analysis_class(exp, save_path=save_path,diff_guess=diff_guess_standard,charge_state=charge_state,run_id=run_id_standard)
+        self.standard_analysis = standard_analysis_class(exp, save_path=save_path,diff_guess=diff_guess_standard,charge_state=charge_state,run_id=run_id_standard,time_slice=time_slice)
         self.pulse_center = pulse_center
         self.save_path = save_path
+        
         
         if not hasattr(self.standard_analysis, 'df_results'):
             result1 = self.standard_analysis.extract_taus(plot=False)
