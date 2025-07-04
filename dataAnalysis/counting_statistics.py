@@ -545,7 +545,11 @@ class StandardGateSweepAnalysis(DataSet):
         gamma_in_std = (tau_in_std / (tau_in_mean ** 2 * np.sqrt(n_in))) if tau_in_mean > 0 and n_in > 0 else np.nan
         gamma_out_std = (tau_out_std / (tau_out_mean ** 2 * np.sqrt(n_out))) if tau_out_mean > 0 and n_out > 0 else np.nan
         
+<<<<<<< Updated upstream
         c1,c2 = self._cumulants(self.time, fall_time,time_slice=self.time_slice) 
+=======
+        c1,c2 = self._cumulants(self.time, fall_time,time_slice=1) 
+>>>>>>> Stashed changes
 
         return {
             "GateVoltage": Vg,
@@ -888,10 +892,15 @@ class counting_analysis: # In future, it is better to update this class to inclu
         axs[0].errorbar(pulse_voltage_out * 1e3, pulse_gamma_out, yerr=pulse_gamma_out_std, fmt='d--', capsize=4,
                         label=r'$\Gamma_{out}$(Pulse)', mfc='steelblue', mec='steelblue', color='steelblue', alpha=0.7)
         axs[0].set_ylabel(r'$\Gamma$ (kHz)', fontsize=12)
+<<<<<<< Updated upstream
         
         if logplot:
             axs[0].set_yscale('log')
         axs[0].set_title(f'Standard ID:{self.standard_analysis.run_id}_Pulse ID:{self.pulse_analysis.run_id}_Tunneling Rate $\Gamma$ vs Gate Voltage', fontsize=14)
+=======
+        #axs[0].set_yscale('log')
+        axs[0].set_title(r'Tunneling Rate $\Gamma$ vs Gate Voltage', fontsize=14)
+>>>>>>> Stashed changes
         axs[0].grid(True)
         axs[0].legend()
 
