@@ -33,7 +33,7 @@ class PulseTunnelingAnalysis(DataSet): # This is for fixed pulse amplitude with 
     and compute corresponding tunneling rates (Gamma_in, Gamma_out).
     """
       
-    def __init__(self,exp,run_id = None, station = None, save_path=None,charge_state = 'low',pulse_amplitude = 6e-3,num_repetition=5,period_guess=94e-3):
+    def __init__(self,exp,run_id = None, station = None, save_path=None,charge_state = 'low',pulse_amplitude = 6e-3,num_repetition=5,period_guess=94e-3,pulse_thres = 0.5):
         """
         Parameters:
             exp: QCoDeS exp object
@@ -54,6 +54,7 @@ class PulseTunnelingAnalysis(DataSet): # This is for fixed pulse amplitude with 
         self.pulse_amplitude = pulse_amplitude
         self.num_repetition = num_repetition
         self.period_guess = period_guess
+        self.pulse_thres = pulse_thres
         
         if type(save_path) == str:
             os.makedirs(save_path,exist_ok = True)
@@ -64,12 +65,9 @@ class PulseTunnelingAnalysis(DataSet): # This is for fixed pulse amplitude with 
         
         Z = np.diff(x[peaks])
         counts,bins = np.histogram(Z,bins=20)
-        #max_index = np.argmax(counts)
-        #bin_start = bins[max_index]
+        Z_cond = (Z>self.period_guess-1e-3)&(Z<self.period_guess+1e-3)
         
-        Z = Z[(Z>self.period_guess-1e-3)&(Z<self.period_guess+1e-3)]
-        counts,bins = np.histogram(Z,bins=20)
-        return np.mean(Z),peaks[0]
+        return np.mean(Z[Z_cond]),peaks[np.argmax(Z_cond)]
     
     def _heal_repetition(self,time,CS_values,zero=True): # Here we assume zero index correspondes to large detuned gate pulse case. 
         
@@ -218,12 +216,12 @@ class PulseTunnelingAnalysis(DataSet): # This is for fixed pulse amplitude with 
         if self.charge_state == 'low':
             tau_in_level = top_level; tau_in_time = top_time
             tau_out_level = bottom_level; tau_out_time = bottom_time
-            tau_in_thres = self.high_diff/2; tau_out_thres = self.low_diff/2
+            tau_in_thres = self.high_diff*self.pulse_thres; tau_out_thres = self.low_diff*self.pulse_thres
             
         else:
             tau_in_level = bottom_level; tau_in_time = bottom_time
             tau_out_level = top_level; tau_out_time = top_time
-            tau_in_thres = self.low_diff/2; tau_out_thres = self.high_diff/2
+            tau_in_thres = self.low_diff*self.pulse_thres; tau_out_thres = self.high_diff*self.pulse_thres
         
         
         if tau_in_thres < np.abs(tau_in_level[0]-tau_in_level[-1]):
