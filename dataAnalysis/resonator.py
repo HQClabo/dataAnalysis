@@ -509,6 +509,22 @@ class BScanVNA(DataSetVNA):
         freq_centers = f_max * np.sqrt(abs(np.sinc((self.field - field_offset)/field_flux_quantum)))
         return freq_centers
     
+    def get_freq_centers_JJ_with_gap_reduction(self, f_max, field_flux_quantum, critical_field, field_offset=0):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            field_offset (float, optional): Offset field. Defaults to 0.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        # in numpy, the sinc function already includes the pi
+        freq_centers = f_max * np.sqrt(abs(np.sinc((self.field - field_offset)/field_flux_quantum))) * (1 - (self.field/critical_field)**2)**(1/4)
+        return freq_centers
+    
     def get_freq_centers_SQUID(self, f_max, field_flux_quantum, field_offset=0):
         """
         Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
