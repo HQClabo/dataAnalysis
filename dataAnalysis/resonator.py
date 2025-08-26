@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import qcodes as qc
 from resonator_tools import circuit
 import lmfit
-from .base import DataSet
+from .base import DataSet, val_to_index
 import dataAnalysis.resonator_fitting as resfit
 
 
@@ -91,6 +91,7 @@ class DataSetVNA(DataSet):
         self.phase = phase['values']
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
+
     def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True):
         """
         Normalize the measurement data using a background measurement run or provided background data.
@@ -118,6 +119,32 @@ class DataSetVNA(DataSet):
         self.normalize_data_mag_phase(self.name_mag, self.name_phase, cData_bg, freq_bg, axis=axis, interpolate=interpolate)
         self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def normalize_data_from_Bscan_slice(self, run_id_Bscan: int, B_field_slice_value: float, axis: int=0, interpolate=True):
+        """
+        Normalize the measurement data (cdata, mag and phase) using a magnetic field sweep to obtain the background. A slice of the magnetic
+        field sweep is taken at the specified value of B field (or the closest slice) and used a background trace.
+
+        Args:
+            run_id_Bscan (int): ID of the magnetic field sweep to be used as background.
+            B_field_slice_value: value of the magnetic field where a slice should be taken and used as a background.
+            axis (int, optional): Axis along which to normalize. Default is 0. For power scans, 0 should be used. I don't know for other fancy
+                                    weird datasets. If things don't work in a 2D dataset, try switching axis.
+            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match 
+                                          with the measurement data. Default is True.
+        """
+        # Obtain the Bscan measurement
+        Bz_sweep = BScanVNA(exp=self.exp, run_id=run_id_Bscan)
+        bg_idx = val_to_index(Bz_sweep.field, B_field_slice_value)
+        bg_mag = Bz_sweep.mag[:, bg_idx]
+        bg_phase = Bz_sweep.phase[:, bg_idx]
+        bg_freq = Bz_sweep.freq
+
+        # Call normalize_data function (inherited from base class)
+        self.normalize_data(['param_0', 'param_1'], [bg_mag, bg_phase], bg_freq, axis=axis, interpolate=interpolate)
+        self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
+        self.phase_norm = self.dependent_parameters['param_1_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
 
     def plot_1D_normalized(self, **kwargs):
