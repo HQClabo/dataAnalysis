@@ -6,6 +6,25 @@ from qcodes.dataset.plotting import _rescale_ticks_and_units, plot_dataset
 import matplotlib.pyplot as plt
 import copy
 
+def val_to_index(array, value):
+    start = array[0]
+    step = array[1] - array[0]
+    result =  int((value - start)/step)
+    if result < 0:
+        return 0
+    if result > len(array):
+        return [-1]
+    return result
+
+def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, other_arrays=None):
+    lower_index = val_to_index(main_array, lower_value) if lower_value else 0
+    upper_index = val_to_index(main_array, upper_value) if upper_value else -1
+    main_array = main_array[lower_index:upper_index]
+    for other_array in other_arrays:
+        other_array = other_array[lower_index:upper_index]
+
+    return main_array, other_arrays
+
 class DataSet():
     """
     Represents a dataset and provides methods for extracting and manipulating the data.
