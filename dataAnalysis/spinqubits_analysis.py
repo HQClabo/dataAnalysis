@@ -26,6 +26,7 @@ V1_Date: [2025-10-29]
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import PowerNorm
 import os
 from scipy.signal import find_peaks
 from scipy.stats import norm
@@ -361,7 +362,42 @@ class SingleShotAnalysis(DataSet):
             self.time = self.independent_parameters['x']['values'] #### WARNING: the time for opx is ns!
             self.signal_mag = self.dependent_parameters['param_0']['values'].T
             self.signal_pha = self.dependent_parameters['param_1']['values'].T
+            
+    def time_trace(self, SHOT_IDS, time_unit = 'us', shot_name = ['|g> state', '|e> state']):
+        
+        t_us = self.time
+        
+        # ---- plotting (muted colors) ----
+        fig, ax = plt.subplots(figsize=(7.8, 4.4))
 
+        palette = ['#1f1f1f', 'red', '#9a6b4f', '#3b6d5b']  # charcoal, gray, muted rust, muted green
+        if time_unit == 'ns': ## Remember the unit of OPX is in ns!
+            scale = 1
+        elif time_unit == 'us':
+            scale = 1e-3
+        elif time_unit == 'ms':
+            scale = 1e-6
+        elif time_unit == 's':
+            scale = 1e-9
+            
+        for idx, shot in enumerate(SHOT_IDS):
+            signal_mag = self.signal_mag[shot]
+        
+            col_line  = palette[idx % len(palette)]
+            col_pts   = '0.25'  # dark gray for markers
+        
+            ax.plot(t_us*scale, signal_mag, color=col_line, lw=2.0, label=f'shot {shot}, {shot_name[idx]}')
+            
+        ax.set_xlabel('Evolution time (µs)')
+        ax.set_ylabel(r'$V_{\rm rf}$')
+        ax.grid(True, which='both', axis='both', alpha=0.3, color='#e5e5e5')
+        ax.minorticks_on()
+        ax.legend(frameon=True, loc='best')
+        
+        fig.tight_layout()
+        plt.show()
+        
+        return fig, ax
         
     def histogram_time_trace(self, num_bins: int, which_column: int = 0, plot = True):
         """
@@ -576,7 +612,6 @@ class SingleShotAnalysis(DataSet):
     
         self.histogram_dict = histogram_dict
         return histogram_dict
-
             
     def plot_histograms(
         self,
@@ -626,7 +661,6 @@ class SingleShotAnalysis(DataSet):
         ax1.set_xlim(edges[0], edges[-1])
         if title:
             ax1.set_title(title)
-    
         if plot_CDF:
             ax2 = ax1.twinx()
             _beautify_axis(ax2)
@@ -669,71 +703,123 @@ class SingleShotAnalysis(DataSet):
         plt.tight_layout()
         plt.show()
         return ax1
-            
-class histogram_2d(SingleShotAnalysis):
-        def __init__(self, exp, run_id=None, station=None, save_path=None):
-            try:
-                if isinstance(run_id, list) and not run_id:
-                    raise ValueError('run_id must be a non-empty list or integer.')
-                elif isinstance(run_id, numbers.Integral) and not isinstance(run_id, bool): ## if it is not a list
-                    super().__init__(exp=exp, run_id=run_id, station=station)
-                    self.time = self.independent_parameters['y']['values'] #### WARNING: the time for opx is ns!
-                    self.bin = self.independent_parameters['x']['values']
-                    self.signal_mag = self.dependent_parameters['param_0']['values'].T
-                    self.signal_pha = self.dependent_parameters['param_1']['values'].T
-                else: ## if it is a list
-                    run_id = np.asarray(run_id)
-                    if run_id.ndim == 1:
-                        self.time = []
-                        self.bin = []
-                        self.signal_mag = []
-                        self.signal_pha = []
-                        
-                        for id in run_id:
-                            super().__init__(exp=exp, run_id=id, station=station)
-                            self.time.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
-                            self.bin.append(self.independent_parameters['x']['values'])
-                            self.signal_mag.append(self.dependent_parameters['param_0']['values'].T)
-                            self.signal_pha.append(self.dependent_parameters['param_1']['values'].T)
-                            
-                    if run_id.ndim == 2:
-                        self.time_e = []
-                        self.bin_e = []
-                        self.signal_mag_e = []
-                        self.signal_pha_e = []
-    
-                        self.time_g = []
-                        self.bin_g = []
-                        self.signal_mag_g = []
-                        self.signal_pha_g = []
-                        
-                        for id_list in range(len(run_id)):
-                            g_ind, e_ind = id_list
-                            super().__init__(exp=exp, run_id=g_ind, station=station)
-                            self.time_g.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
-                            self.bin_g.append(self.independent_parameters['x']['values'])
-                            self.signal_mag_g.append(self.dependent_parameters['param_0']['values'].T)
-                            self.signal_pha_g.append(self.dependent_parameters['param_1']['values'].T)
-    
-                            
-                            super().__init__(exp=exp, run_id=e_ind, station=station)
-                            self.time_e.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
-                            self.bin_e.append(self.independent_parameters['x']['values'])
-                            self.signal_mag_e.append(self.dependent_parameters['param_0']['values'].T)
-                            self.signal_pha_e.append(self.dependent_parameters['param_1']['values'].T)
-                            
-            except KeyError:
-                super().__init__(exp=exp, run_id=run_id, station=station)
-                self.time = self.independent_parameters['x']['values'] #### WARNING: the time for opx is ns!
-                self.signal_mag = self.dependent_parameters['param_0']['values'].T
-                self.signal_pha = self.dependent_parameters['param_1']['values'].T
-        
-        def plot_2d_histogram(self):
-            histogram_time_trace
         
 
+def plot_2D_histogram(exp,run_id,station, num_bins,integration_time_array, plot_1D = True, xmax = None, xmin = None, time_unit = 'us', plot_visibility = False, plot_threshold = False):
+    
+    """
+    run_id: list
+    num_bins: int
+    plot: boolen
+    """
+    
+    histogram_stack_list = []
+    histogram_ground_list = []
+    histogram_excited_list = []
+    common_edges_list = []
+    visibility_list = []
+    threshold_list = []
+    
+    if time_unit == 'ns': ## Remember the unit of OPX is in ns!
+        scale = 1
+    elif time_unit == 'us':
+        scale = 1e-3
+    elif time_unit == 'ms':
+        scale = 1e-6
+    elif time_unit == 's':
+        scale = 1e-9
+    for i in range(len(run_id)):
+        run_id_eg = run_id[i]
+        SSA = SingleShotAnalysis(exp, run_id_eg, station)
+        hist_dictionary = SSA.histogram_time_trace(num_bins = num_bins, plot = plot_1D)
+        histogram_stack_list.append(hist_dictionary['histogram_stack'])
+        histogram_ground_list.append(hist_dictionary['histogram_ground'])
+        histogram_excited_list.append(hist_dictionary['histogram_excited'])
+        common_edges_list.append(hist_dictionary['common_edges'])
 
+        metrics = compute_visibility_from_histogram(hist_dictionary)
+        ps, pt, vis, centers, best_vis, threshold = (
+            metrics["probability_singlet"],
+            metrics["probability_triplet"],
+            metrics["visibility"],
+            metrics["centers"],
+            metrics["best_visibility"],
+            metrics["threshold_voltage"]
+        )
+        visibility_list.append(best_vis)
+        threshold_list.append(threshold)
+        
+    histogram_stack_array = np.asarray(histogram_stack_list)
+    histogram_ground_array  = np.asarray(histogram_ground_list)
+    histogram_excited_array  = np.asarray(histogram_excited_list)
+    common_edges_array  = np.asarray(common_edges_list)
+    
+    if xmax == None:
+        xmax = np.max(common_edges_array)
+    if xmin == None:
+        xmin = np.min(common_edges_array)
+    # now we regroup into 2
+    
+    integration_time_array = scale * integration_time_array
+    
+    common_edges = make_common_edges(xmin, xmax, nbins=num_bins)  # or bin_width=BIN_WIDTH
+    histogram_stack_2d = np.vstack([rebin_counts(c, e, common_edges) for c, e in zip(histogram_stack_list, common_edges_list)])
 
+    cmap = 'Greys_r'
+    
+    fig, ax = plt.subplots(figsize=(7.6, 4.6))
+    im = ax.imshow(
+        histogram_stack_2d,
+        origin='lower',
+        aspect='auto',
+        extent=(common_edges[0], common_edges[-1],
+                float(integration_time_array.min()), float(integration_time_array.max())),
+        cmap=cmap,
+        interpolation='nearest',        # crisp (no blending)
+        norm=PowerNorm(gamma=0.6)       # subtle contrast boost; remove for linear
+    )
+    
+    ax.set_xlabel('V_rf (V)')
+    ax.set_ylabel(r'$\tau_M$ (ns)')
+    
+    cb = fig.colorbar(im, ax=ax, label='Counts')
+    cb.ax.tick_params(color='0.2')
+    cb.outline.set_edgecolor('0.2')
+    
+    plt.tight_layout()
+    plt.show()
+
+    if plot_visibility:
+        nice_one_d_plot(integration_time_array, visibility_list)
+    if plot_threshold:
+        nice_one_d_plot(integration_time_array, threshold_list)
+    
+    return fig, ax
+
+def nice_one_d_plot(t, v):
+    # best point
+    imax = int(np.nanargmax(v))
+    t_best, v_best = t[imax], v[imax]
+    
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
+    # original points
+    ax.plot(t, v, ms=4, alpha=0.5, label='visibility')
+    # highlight max
+    ax.axvline(t_best, ls='--', lw=1.2, color='tab:gray')
+    ax.plot(t_best, v_best, marker='*', ms=12, color='tab:orange', zorder=5,
+            label=f'peak: t={t_best:.3g}, vis={v_best:.3f}')
+    
+    # cosmetics
+    ax.set_xlabel('Integration time (ns)')
+    ax.set_ylabel(r'Visibility $F_S+F_T-1$')
+    ax.set_ylim(0, 1.05)
+    ax.grid(True, which='both', alpha=0.3)
+    ax.minorticks_on()
+    ax.legend(frameon=True, loc='lower right')
+    fig.tight_layout()
+    plt.show()
+    return ax, fig
+    
 ## 2D histogram
 def make_common_edges(xmin, xmax, nbins=None, bin_width=None):
     if bin_width is not None:
