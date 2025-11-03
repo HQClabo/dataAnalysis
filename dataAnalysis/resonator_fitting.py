@@ -166,6 +166,9 @@ def fit_frequency_sweep(
         Dictionary containing the results of the fit as np.arrays for each parameter.
 
     """
+    if freq_range:
+        if (freq_range[1] < freq.min()) or (freq_range[0] > freq.max()):
+            raise ValueError(f"The frequency range {freq_range} must be at least partially contained in the frequency data.")
     if method == 'resonator_tools':
         return _fit_frequency_sweep_resonator_tools(data,freq,freq_range,power,port_type,plot)
     elif method == 'lmfit':
@@ -387,6 +390,9 @@ def fit_power_sweep(
         }
     if port_type == 'notch':
         fit_report['phi0'] = np.array([np.nan]*n_powers)
+    if freq_range:
+        if (freq_range[1] < freq.min()) or (freq_range[0] > freq.max()):
+            raise ValueError(f"The frequency range {freq_range} must be at least partially contained in the frequency data.")
     if method == 'resonator_tools':
         return _fit_power_sweep_resonator_tools(data,freq,power,freq_range,power_range,attenuation,
                                                 port_type,fit_report,plot)
@@ -627,6 +633,8 @@ def fit_field_sweep(
         }
     if port_type == 'notch':
         fit_report['phi0'] = np.array([np.nan]*n_fields)
+    if np.any(center_freqs < freq.min()):
+        print('Center frequencies below the minimum frequency in the data will be ignored for the fit.')
     if method == 'resonator_tools':
         return _fit_field_sweep_resonator_tools(data,freq,field,center_freqs,span,field_range,power,
                                                 port_type,fit_report,plot)
@@ -652,6 +660,8 @@ def _fit_field_sweep_resonator_tools(
         if field_range:
             if (field[k] < field_range[0]) or (field[k] > field_range[1]):
                 continue
+        if cfreq < freq[0]:
+            continue
         # define port type
         if port_type == 'notch':
             port = circuit.notch_port()
@@ -713,6 +723,8 @@ def _fit_field_sweep_lmfit(
         if field_range:
             if (field[k] < field_range[0]) or (field[k] > field_range[1]):
                 continue
+        if cfreq < freq[0]:
+            continue
         # Define port type
         if port_type == 'notch':
             model_func = S21_resonator_notch
@@ -720,7 +732,6 @@ def _fit_field_sweep_lmfit(
             model_func = S11_resonator_reflection
         else:
             print("This port type is not supported. Supported types are 'notch' or 'reflection'")
-        
         data_to_fit = data[k]
         freq_slice = myplt.find_slice(freq, [cfreq-span/2,cfreq+span/2])
         freq_to_fit = freq[freq_slice]

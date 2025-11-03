@@ -252,7 +252,7 @@ def format_colorbar(cb,
                     label_kw={},
                     tick_kw={}
                     ):
-    if labelpos=='right': cb.set_label(clabel,fontsize=fontsize,**label_kw)
+    if labelpos=='right' or labelpos=='left': cb.set_label(clabel,fontsize=fontsize,**label_kw)
     if labelpos=='top': cb.ax.set_title(clabel,fontsize=fontsize,**label_kw)
     cb.ax.tick_params(**tick_kw)
 
