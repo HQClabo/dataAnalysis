@@ -26,13 +26,11 @@ V1_Date: [2025-10-29]
 
 import numpy as np
 import matplotlib.pyplot as plt
-import os
 from scipy.signal import find_peaks
 from scipy.stats import norm
 from scipy.optimize import curve_fit, minimize
 from lmfit import Model, create_params, Parameters
 import lmfit
-import sys
 
 from scipy.special import erf
 from numpy.polynomial.legendre import leggauss
@@ -40,17 +38,19 @@ from numpy.polynomial.legendre import leggauss
 from dataAnalysis.base import DataSet
 import numbers
 
+
+
 class SpinQubitAnalysis(DataSet):
     """
-    Data analysis class for spin qubit experiment
+    Data analysis class for .
     """
-    def __init__(self, exp, run_id=None, station=None, save_path=None):
+    def __init__(self, exp, run_id, station=None):
         try:
             if isinstance(run_id, list) and not run_id:
                 raise ValueError('run_id must be a non-empty list or integer.')
             elif isinstance(run_id, numbers.Integral) and not isinstance(run_id, bool):
                 super().__init__(exp=exp, run_id=run_id, station=station)
-                self.time = self.independent_parameters['y']['values'] #### WARNING: the time for opx is ns!
+                self.time = self.independent_parameters['y']['values'] 
                 self.bin = self.independent_parameters['x']['values']
                 self.signal_mag = self.dependent_parameters['param_0']['values'].T
                 self.signal_pha = self.dependent_parameters['param_1']['values'].T
@@ -61,14 +61,13 @@ class SpinQubitAnalysis(DataSet):
                 self.signal_pha = []
                 
                 for id in run_id:
-                    super().__init__(exp=exp, run_id=id, station=station)
-                    self.time.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
+                    super().__init__(exp=exp, run_id=id, station=station) 
                     self.bin.append(self.independent_parameters['x']['values'])
                     self.signal_mag.append(self.dependent_parameters['param_0']['values'].T)
                     self.signal_pha.append(self.dependent_parameters['param_1']['values'].T)
         except KeyError:
             super().__init__(exp=exp, run_id=run_id, station=station)
-            self.time = self.independent_parameters['x']['values'] #### WARNING: the time for opx is ns!
+            self.time = self.independent_parameters['x']['values'] 
             self.signal_mag = self.dependent_parameters['param_0']['values'].T
             self.signal_pha = self.dependent_parameters['param_1']['values'].T
     
@@ -76,15 +75,12 @@ class SpinQubitAnalysis(DataSet):
         """
         Fit T1 from a relaxation trace using: y(t) = y_inf + A * exp(-t/T1)
     
-        Parameters
-        ----------
-        t : 1D array (seconds)
-        y : 1D array (same length)
+        Parameters:
+            t : 1D array (seconds)
+            y : 1D array (same length)
     
-        Returns
-        -------
-        dict with keys:
-          T1, y_inf, A, yfit, popt, pcov, T1_stderr (1-sigma), r2
+        Returns:
+            A dictionary with keys: T1, y_inf, A, yfit, popt, pcov, T1_stderr (1-sigma), r2
         """
         y = np.average(self.signal_mag, axis = 0)
         t = self.time
@@ -283,115 +279,74 @@ class SpinQubitAnalysis(DataSet):
         ax.set_xlim(0, xlimit*t[-1]*scale)
         return ax
         
-    def lmfit_example(self):
-
-        tt_data, f_data = np.meshgrid(self.time, self.freq)
-
-        params = lmfit.Parameters()
-        params.add('y0', value=0, vary=True)
-        params.add('A', value=1, vary=True)
-        params.add('phi', value=0, vary=True)
-        params.add('T2s', value=1, vary=True)
-        params['A'].min = 0
-
-        model = lmfit.Model(self._model_T2star, independent_parameters=['tt', 'f'])
-        result = model.fit(self.mag, params, tt=tt_data, f=f_data)
-
-        print(lmfit.fit_report(result))
-
-        return result
         
 class SingleShotAnalysis(DataSet):
     """
     Data analysis class for single shot experiment
     """
-    def __init__(self, exp, run_id=None, station=None, save_path=None):
-        try:
-            if isinstance(run_id, list) and not run_id:
-                raise ValueError('run_id must be a non-empty list or integer.')
-            elif isinstance(run_id, numbers.Integral) and not isinstance(run_id, bool): ## if it is not a list
-                super().__init__(exp=exp, run_id=run_id, station=station)
-                self.time = self.independent_parameters['y']['values'] #### WARNING: the time for opx is ns!
-                self.bin = self.independent_parameters['x']['values']
-                self.signal_mag = self.dependent_parameters['param_0']['values'].T
-                self.signal_pha = self.dependent_parameters['param_1']['values'].T
-            else: ## if it is a list
-                run_id = np.asarray(run_id)
-                if run_id.ndim == 1:
-                    self.time = []
-                    self.bin = []
-                    self.signal_mag = []
-                    self.signal_pha = []
-                    
-                    for id in run_id:
-                        super().__init__(exp=exp, run_id=id, station=station)
-                        self.time.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
-                        self.bin.append(self.independent_parameters['x']['values'])
-                        self.signal_mag.append(self.dependent_parameters['param_0']['values'].T)
-                        self.signal_pha.append(self.dependent_parameters['param_1']['values'].T)
-                        
-                if run_id.ndim == 2:
-                    self.time_e = []
-                    self.bin_e = []
-                    self.signal_mag_e = []
-                    self.signal_pha_e = []
-
-                    self.time_g = []
-                    self.bin_g = []
-                    self.signal_mag_g = []
-                    self.signal_pha_g = []
-                    
-                    for id_list in range(len(run_id)):
-                        g_ind, e_ind = id_list
-                        super().__init__(exp=exp, run_id=g_ind, station=station)
-                        self.time_g.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
-                        self.bin_g.append(self.independent_parameters['x']['values'])
-                        self.signal_mag_g.append(self.dependent_parameters['param_0']['values'].T)
-                        self.signal_pha_g.append(self.dependent_parameters['param_1']['values'].T)
-
-                        
-                        super().__init__(exp=exp, run_id=e_ind, station=station)
-                        self.time_e.append(self.independent_parameters['y']['values']) #### WARNING: the time for opx is ns!
-                        self.bin_e.append(self.independent_parameters['x']['values'])
-                        self.signal_mag_e.append(self.dependent_parameters['param_0']['values'].T)
-                        self.signal_pha_e.append(self.dependent_parameters['param_1']['values'].T)
-                        
-        except KeyError:
+    def __init__(self, exp, run_id, station=None):
+        """
+        Parameters:
+            exp: The experiment handler.
+            run_id (int, list): run_id or [run_id_ground, run_id_excited]
+        
+        """
+        if isinstance(run_id, numbers.Integral):    # one single run_id provided
             super().__init__(exp=exp, run_id=run_id, station=station)
-            self.time = self.independent_parameters['x']['values'] #### WARNING: the time for opx is ns!
+            self.time = self.independent_parameters['y']['values'] 
+            self.num_shot = self.independent_parameters['x']['values']
             self.signal_mag = self.dependent_parameters['param_0']['values'].T
             self.signal_pha = self.dependent_parameters['param_1']['values'].T
+        elif isinstance(run_id, list):  
+            assert len(run_id) == 2, "run_id must be either an integer or a list of two integers (one for ground state, one for excited state)"
+            run_id_g, run_id_e = run_id[0], run_id[1]
+
+            dataset_g = DataSet(exp=exp, run_id=run_id_g, station=station)
+            self.time_g = dataset_g.independent_parameters['y']['values'] 
+            self.num_shot_g = dataset_g.independent_parameters['x']['values'] 
+            self.tot_num_shots_g = len(self.num_shot_g)
+            self.signal_mag_g = dataset_g.dependent_parameters['param_0']['values'].T
+            self.signal_phase_g = dataset_g.dependent_parameters['param_1']['values'].T
+
+            dataset_e = DataSet(exp=exp, run_id=run_id_e, station=station)
+            self.time_e = dataset_e.independent_parameters['y']['values'] 
+            self.num_shot_e = dataset_e.independent_parameters['x']['values'] 
+            self.tot_num_shots_e = len(self.num_shot_e)
+            self.signal_mag_e = dataset_e.dependent_parameters['param_0']['values'].T
+            self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
 
         
-    def histogram_time_trace(self, num_bins: int, which_column: int = 0, plot = True):
+    def build_histogram_time_trace(self, num_bins: int, time_index: int = 0, do_plot=True, clip_quantiles=(0,1)):
         """
         Build 1D histograms (Ground vs Excited) from the selected time-trace column.
 
-        - num_bins: number of bins
-        - which_column: choose which bin of the 2D traces to histogram. Default to be the first bin.
+        Parameters:
+            num_bins: number of bins
+            which_column: choose which bin of the 2D traces to histogram. Default to be the first bin.
+            clip_quantiles: Tuple (low, high) percentages.
 
         Returns: dict with 'histogram_ground', 'histogram_excited', 'histogram_stack', 'common_edges'
         """
-        ground_time, excited_time = self.time
-        ground_mag, excited_mag = self.signal_mag
-        ground_pha, excited_pha = self.signal_pha
-        ground_bin, excited_bin = self.bin
+        # ground_time, excited_time = self.time
+        # ground_mag, excited_mag = self.signal_mag
+        # ground_pha, excited_pha = self.signal_pha
+        # ground_bin, excited_bin = self.num_shots
 
-        ground_num_shot = int(ground_bin[-1])
-        excited_num_shot = int(excited_bin[-1])
-        if ground_num_shot != excited_num_shot:
-            raise ValueError("ground num shot must equal to excited num shot")
+        # ground_num_shot = int(ground_bin[-1])
+        # excited_num_shot = int(excited_bin[-1])
+        if self.tot_num_shots_g != self.tot_num_shots_e:
+            raise ValueError("Ground num shot must equal to excited num shot")
 
-        # reshape to (shots, samples_per_shot)
-        n = ground_mag.size
-        mag_2d_ground = ground_mag.reshape(ground_num_shot, n // ground_num_shot)
-        m = excited_mag.size
-        mag_2d_excited = excited_mag.reshape(excited_num_shot, m // excited_num_shot)
-        if plot:
+        # # reshape to (shots, samples_per_shot)
+        # n = ground_mag.size
+        # mag_2d_ground = ground_mag.reshape(ground_num_shot, n // ground_num_shot)
+        # m = excited_mag.size
+        # mag_2d_excited = excited_mag.reshape(excited_num_shot, m // excited_num_shot)
+        if do_plot:
             # quick sanity scatter of the averaged traces (can comment out later)
             plt.figure(figsize=(6.5, 3.0))
-            plt.scatter(ground_time, np.mean(mag_2d_ground, axis=0), s=6, alpha=0.7, label="Ground avg")
-            plt.scatter(excited_time, np.mean(mag_2d_excited, axis=0), s=6, alpha=0.7, label="Excited avg")
+            plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground avg")
+            plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited avg")
             plt.xlabel("Time (ns)")
             plt.ylabel("Magnitude (a.u.)")
             plt.legend(frameon=False)
@@ -399,27 +354,26 @@ class SingleShotAnalysis(DataSet):
             plt.tight_layout()
             plt.show()
 
-        # pick the column to histogram and clean NaNs/infs
-        xg = mag_2d_ground[:, which_column]
-        xe = mag_2d_excited[:, which_column]
-        xg = xg[np.isfinite(xg)]
-        xe = xe[np.isfinite(xe)]
+        # Pick the data from the provided time index and clean NaNs/infs
+        ground_data = self.signal_mag_g[:, time_index]
+        excited_data = self.signal_mag_e[:, time_index]
+        ground_data = ground_data[np.isfinite(ground_data)]
+        excited_data = excited_data[np.isfinite(excited_data)]
 
-        # robust range for bin edges
-        both = np.r_[xg, xe]
-        clip_quantiles = (0, 1)
+        # Clip according to the given quantiles
+        both_data = np.r_[ground_data, excited_data]
         if clip_quantiles is not None:
-            lo, hi = np.quantile(both, clip_quantiles)
-            both = both[(both >= lo) & (both <= hi)]
-            xg = xg[(xg >= lo) & (xg <= hi)]
-            xe = xe[(xe >= lo) & (xe <= hi)]
+            lo, hi = np.quantile(both_data, clip_quantiles)
+            both_data = both_data[(both_data >= lo) & (both_data <= hi)]
+            ground_data = ground_data[(ground_data >= lo) & (ground_data <= hi)]
+            excited_data = excited_data[(excited_data >= lo) & (excited_data <= hi)]
 
         # shared edges
-        edges = np.histogram_bin_edges(both, bins=num_bins)
+        edges = np.histogram_bin_edges(both_data, bins=num_bins)
 
         # hist counts using same edges
-        hg, _ = np.histogram(xg, bins=edges)
-        he, _ = np.histogram(xe, bins=edges)
+        hg, _ = np.histogram(ground_data, bins=edges)
+        he, _ = np.histogram(excited_data, bins=edges)
         h_total = hg + he
 
         hist_dict = {
@@ -430,6 +384,99 @@ class SingleShotAnalysis(DataSet):
         }
         self.histogram_dict = hist_dict
         return hist_dict
+    
+
+    def plot_histograms(
+        self,
+        hdict: dict | None = None,
+        kind: str = "stacked",
+        plot_CDF: bool = False,
+        labels: tuple[str, str] = ("Ground", "Excited"),
+        x_label: str = "RF signal (V)",
+        title: str | None = "Single-shot histograms",
+    ):
+        if hdict is None:
+            if not hasattr(self, "histogram_dict"):
+                raise ValueError("Run histogram_time_trace(...) first or pass hdict explicitly.")
+            hdict = self.histogram_dict
+    
+        for key in ("histogram_ground", "histogram_excited", "common_edges"):
+            if key not in hdict:
+                raise KeyError(f"Missing key '{key}' in histogram dict.")
+    
+        hg = np.asarray(hdict["histogram_ground"], dtype=float)
+        he = np.asarray(hdict["histogram_excited"], dtype=float)
+        edges = np.asarray(hdict["common_edges"], dtype=float)
+    
+        if edges.ndim != 1 or edges.size != hg.size + 1 or edges.size != he.size + 1:
+            raise ValueError("`common_edges` must be length N+1 where N=len(histogram_*).")
+    
+        x_left = edges[:-1]
+        w = np.diff(edges)
+        centers = x_left + 0.5 * w
+    
+        if kind == "separate":
+            return _separate_histogram_plot(x_left, w, hg, he, centers, labels, x_label, "Counts", title)
+    
+        fig, ax1 = plt.subplots(figsize=(7.5, 4.6))
+        _beautify_axis(ax1)
+    
+        # Always plot raw counts on left y-axis
+        if kind == "stacked":
+            _stacked_histogram_plot(ax1, x_left, w, hg, he, edges, labels)
+        elif kind == "overlay":
+            _overlay_histogram_plot(ax1, centers, hg, he, edges, labels)
+        else:
+            raise ValueError("kind must be 'stacked', 'overlay', or 'separate'.")
+    
+        ax1.set_xlabel(x_label)
+        ax1.set_ylabel("Counts")
+        ax1.set_xlim(edges[0], edges[-1])
+        if title:
+            ax1.set_title(title)
+    
+        if plot_CDF:
+            ax2 = ax1.twinx()
+            _beautify_axis(ax2)
+            ax2.set_ylabel("Probability")
+            ax2.set_ylim(0, 1.05)
+    
+            # CALL visibility computation
+            metrics = compute_visibility_from_histogram(hdict)
+            ps, pt, vis, centers, best_vis, threshold = (
+                metrics["probability_singlet"],
+                metrics["probability_triplet"],
+                metrics["visibility"],
+                metrics["centers"],
+                metrics["best_visibility"],
+                metrics["threshold_voltage"]
+            )
+    
+            # Plot on right y-axis
+            ax2.plot(centers, ps, label="Singlet CDF", color="tab:blue", linestyle="--", linewidth=1.5)
+            ax2.plot(centers, pt, label="Triplet CDF", color="tab:orange", linestyle="--", linewidth=1.5)
+            ax2.plot(centers, vis, label="Visibility", color="tab:green", linestyle="-", linewidth=1.5)
+    
+            # Annotate threshold on left axis
+            ax1.axvline(threshold, color="gray", linestyle=":", linewidth=1.5, label="Threshold")
+            ax1.annotate(
+                f"Max visibility = {best_vis:.3f}\nThreshold = {threshold*1e3:.3f} mV",
+                xy=(threshold, 0.95 * ax1.get_ylim()[1]),
+                xytext=(10, -30), textcoords="offset points",
+                arrowprops=dict(arrowstyle="->", lw=1),
+                fontsize=10, ha="left"
+            )
+    
+            # Combined legend
+            h1, l1 = ax1.get_legend_handles_labels()
+            h2, l2 = ax2.get_legend_handles_labels()
+            ax1.legend(h1 + h2, l1 + l2, frameon=False)
+        else:
+            ax1.legend(frameon=False)
+    
+        plt.tight_layout()
+        plt.show()
+        return ax1
         
     def histogram_chevron(self, mag_bins=100, time_bins=100, num_bins=100, plot = True):
         """
@@ -578,99 +625,8 @@ class SingleShotAnalysis(DataSet):
         return histogram_dict
 
             
-    def plot_histograms(
-        self,
-        hdict: dict | None = None,
-        kind: str = "stacked",
-        plot_CDF: bool = False,
-        labels: tuple[str, str] = ("Ground", "Excited"),
-        x_label: str = "RF signal (V)",
-        title: str | None = "Single-shot histograms",
-    ):
-        if hdict is None:
-            if not hasattr(self, "histogram_dict"):
-                raise ValueError("Run histogram_time_trace(...) first or pass hdict explicitly.")
-            hdict = self.histogram_dict
-    
-        for key in ("histogram_ground", "histogram_excited", "common_edges"):
-            if key not in hdict:
-                raise KeyError(f"Missing key '{key}' in histogram dict.")
-    
-        hg = np.asarray(hdict["histogram_ground"], dtype=float)
-        he = np.asarray(hdict["histogram_excited"], dtype=float)
-        edges = np.asarray(hdict["common_edges"], dtype=float)
-    
-        if edges.ndim != 1 or edges.size != hg.size + 1 or edges.size != he.size + 1:
-            raise ValueError("`common_edges` must be length N+1 where N=len(histogram_*).")
-    
-        x_left = edges[:-1]
-        w = np.diff(edges)
-        centers = x_left + 0.5 * w
-    
-        if kind == "separate":
-            return _separate_histogram_plot(x_left, w, hg, he, centers, labels, x_label, "Counts", title)
-    
-        fig, ax1 = plt.subplots(figsize=(7.5, 4.6))
-        _beautify_axis(ax1)
-    
-        # Always plot raw counts on left y-axis
-        if kind == "stacked":
-            _stacked_histogram_plot(ax1, x_left, w, hg, he, edges, labels)
-        elif kind == "overlay":
-            _overlay_histogram_plot(ax1, centers, hg, he, edges, labels)
-        else:
-            raise ValueError("kind must be 'stacked', 'overlay', or 'separate'.")
-    
-        ax1.set_xlabel(x_label)
-        ax1.set_ylabel("Counts")
-        ax1.set_xlim(edges[0], edges[-1])
-        if title:
-            ax1.set_title(title)
-    
-        if plot_CDF:
-            ax2 = ax1.twinx()
-            _beautify_axis(ax2)
-            ax2.set_ylabel("Probability")
-            ax2.set_ylim(0, 1.05)
-    
-            # CALL visibility computation
-            metrics = compute_visibility_from_histogram(hdict)
-            ps, pt, vis, centers, best_vis, threshold = (
-                metrics["probability_singlet"],
-                metrics["probability_triplet"],
-                metrics["visibility"],
-                metrics["centers"],
-                metrics["best_visibility"],
-                metrics["threshold_voltage"]
-            )
-    
-            # Plot on right y-axis
-            ax2.plot(centers, ps, label="Singlet CDF", color="tab:blue", linestyle="--", linewidth=1.5)
-            ax2.plot(centers, pt, label="Triplet CDF", color="tab:orange", linestyle="--", linewidth=1.5)
-            ax2.plot(centers, vis, label="Visibility", color="tab:green", linestyle="-", linewidth=1.5)
-    
-            # Annotate threshold on left axis
-            ax1.axvline(threshold, color="gray", linestyle=":", linewidth=1.5, label="Threshold")
-            ax1.annotate(
-                f"Max visibility = {best_vis:.3f}\nThreshold = {threshold*1e3:.3f} mV",
-                xy=(threshold, 0.95 * ax1.get_ylim()[1]),
-                xytext=(10, -30), textcoords="offset points",
-                arrowprops=dict(arrowstyle="->", lw=1),
-                fontsize=10, ha="left"
-            )
-    
-            # Combined legend
-            h1, l1 = ax1.get_legend_handles_labels()
-            h2, l2 = ax2.get_legend_handles_labels()
-            ax1.legend(h1 + h2, l1 + l2, frameon=False)
-        else:
-            ax1.legend(frameon=False)
-    
-        plt.tight_layout()
-        plt.show()
-        return ax1
             
-class histogram_2d(SingleShotAnalysis):
+class Histogram2D(SingleShotAnalysis):
         def __init__(self, exp, run_id=None, station=None, save_path=None):
             try:
                 if isinstance(run_id, list) and not run_id:
