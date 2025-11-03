@@ -284,7 +284,7 @@ class SingleShotAnalysis(DataSet):
     """
     Data analysis class for single shot experiment
     """
-    def __init__(self, exp, run_id, station=None):
+    def __init__(self, exp, run_id:int|list, station=None):
         """
         Parameters:
             exp: The experiment handler.
@@ -315,44 +315,35 @@ class SingleShotAnalysis(DataSet):
             self.signal_mag_e = dataset_e.dependent_parameters['param_0']['values'].T
             self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
 
+    def plot_average_time_trace_over_shots(self):
+        plt.figure(figsize=(6.5, 3.0))
+        plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground avg")
+        plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited avg")
+        plt.xlabel("Time (ns)")
+        plt.ylabel("Magnitude (a.u.)")
+        plt.legend(frameon=False)
+        plt.grid(alpha=0.25, linestyle="--")
+        plt.tight_layout()
+        plt.show()
         
-    def build_histogram_time_trace(self, num_bins: int, time_index: int = 0, do_plot=True, clip_quantiles=(0,1)):
+    def build_histogram_time_trace(self, num_bins: int, time_index: int = 0, plot_average_time_trace=False, clip_quantiles:tuple=(0,1)):
         """
         Build 1D histograms (Ground vs Excited) from the selected time-trace column.
 
         Parameters:
             num_bins: number of bins
             which_column: choose which bin of the 2D traces to histogram. Default to be the first bin.
-            clip_quantiles: Tuple (low, high) percentages.
+            clip_quantiles: Tuple containing lower and higher percentages for cutting outlier data.
 
         Returns: dict with 'histogram_ground', 'histogram_excited', 'histogram_stack', 'common_edges'
         """
-        # ground_time, excited_time = self.time
-        # ground_mag, excited_mag = self.signal_mag
-        # ground_pha, excited_pha = self.signal_pha
-        # ground_bin, excited_bin = self.num_shots
-
-        # ground_num_shot = int(ground_bin[-1])
-        # excited_num_shot = int(excited_bin[-1])
+        # Check data shapes match
         if self.tot_num_shots_g != self.tot_num_shots_e:
             raise ValueError("Ground num shot must equal to excited num shot")
 
-        # # reshape to (shots, samples_per_shot)
-        # n = ground_mag.size
-        # mag_2d_ground = ground_mag.reshape(ground_num_shot, n // ground_num_shot)
-        # m = excited_mag.size
-        # mag_2d_excited = excited_mag.reshape(excited_num_shot, m // excited_num_shot)
-        if do_plot:
-            # quick sanity scatter of the averaged traces (can comment out later)
-            plt.figure(figsize=(6.5, 3.0))
-            plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground avg")
-            plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited avg")
-            plt.xlabel("Time (ns)")
-            plt.ylabel("Magnitude (a.u.)")
-            plt.legend(frameon=False)
-            plt.grid(alpha=0.25, linestyle="--")
-            plt.tight_layout()
-            plt.show()
+        # Plot average time trace if asked
+        if plot_average_time_trace:
+            self.plot_average_time_trace_over_shots()
 
         # Pick the data from the provided time index and clean NaNs/infs
         ground_data = self.signal_mag_g[:, time_index]
@@ -360,22 +351,24 @@ class SingleShotAnalysis(DataSet):
         ground_data = ground_data[np.isfinite(ground_data)]
         excited_data = excited_data[np.isfinite(excited_data)]
 
-        # Clip according to the given quantiles
-        both_data = np.r_[ground_data, excited_data]
+        both_data = np.r_[ground_data, excited_data]    # Combine ground and excited data together
+
+        # Cut out outliers according to the given quanties
         if clip_quantiles is not None:
-            lo, hi = np.quantile(both_data, clip_quantiles)
+            lo, hi = np.quantile(both_data, clip_quantiles)     # Use combined data to calculate the quantiles
             both_data = both_data[(both_data >= lo) & (both_data <= hi)]
             ground_data = ground_data[(ground_data >= lo) & (ground_data <= hi)]
             excited_data = excited_data[(excited_data >= lo) & (excited_data <= hi)]
 
-        # shared edges
+        # Shared edges
         edges = np.histogram_bin_edges(both_data, bins=num_bins)
 
-        # hist counts using same edges
+        # Calculate histogram counts using same edges
         hg, _ = np.histogram(ground_data, bins=edges)
         he, _ = np.histogram(excited_data, bins=edges)
         h_total = hg + he
 
+        # Save data in a dictionary
         hist_dict = {
             "histogram_ground": hg,
             "histogram_excited": he,
