@@ -316,7 +316,10 @@ class SingleShotAnalysis(DataSet):
             self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
 
     def plot_average_time_trace_over_shots(self):
-        plt.figure(figsize=(6.5, 3.0))
+        """
+        Calculate the average time trace over all the shots for ground and excited state data and plot it.
+        """
+        fig = plt.figure(figsize=(6.5, 3.0))
         plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground avg")
         plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited avg")
         plt.xlabel("Time (ns)")
@@ -325,8 +328,10 @@ class SingleShotAnalysis(DataSet):
         plt.grid(alpha=0.25, linestyle="--")
         plt.tight_layout()
         plt.show()
+
+        return fig, fig.axes[0]
         
-    def build_histogram_time_trace(self, num_bins: int, time_index: int = 0, plot_average_time_trace=False, clip_quantiles:tuple=(0,1)):
+    def build_histogram_time_trace(self, num_bins: int, time_index: int = 0, plot_average_time_trace=False, clip_quantiles:tuple=(0,1)) -> dict:
         """
         Build 1D histograms (Ground vs Excited) from the selected time-trace column.
 
@@ -381,56 +386,86 @@ class SingleShotAnalysis(DataSet):
 
     def plot_histograms(
         self,
-        hdict: dict | None = None,
         kind: str = "stacked",
         plot_CDF: bool = False,
         labels: tuple[str, str] = ("Ground", "Excited"),
-        x_label: str = "RF signal (V)",
+        x_label: str = "Signal",
         title: str | None = "Single-shot histograms",
+        signal_unit: str = "mV",
+        fig = None,
+        ax = None,
+        hdict: dict | None = None,
     ):
+        """
+        Plot the histogram for the single-shot measurement. This assumes that build_histogram_time_trace has been
+        previously run.
+
+        Parameters:
+            kind (string, optional): Histogram type. Choose among 'stacked', 'stacked_only', 'overlay', 'separate'.
+            plot_CDF (bool, optional): If true, the CDF is fitted to obtain the optimal thresholding value and the visibility.
+            labels (tuple, optional): Tuple of strings for the ground state and excited state labels.
+            x_label (string, optional): String for the x label.
+            signal_unit (string, optional): Choose among 'V', 'mV', 'uV' and the signal data will be converted into the desired unit.
+        """
+        # Get data from the histogram dictionary
         if hdict is None:
             if not hasattr(self, "histogram_dict"):
-                raise ValueError("Run histogram_time_trace(...) first or pass hdict explicitly.")
+                raise ValueError("Run build_histogram_time_trace(...) first or pass hdict explicitly.")
             hdict = self.histogram_dict
-    
         for key in ("histogram_ground", "histogram_excited", "common_edges"):
             if key not in hdict:
                 raise KeyError(f"Missing key '{key}' in histogram dict.")
-    
-        hg = np.asarray(hdict["histogram_ground"], dtype=float)
-        he = np.asarray(hdict["histogram_excited"], dtype=float)
-        edges = np.asarray(hdict["common_edges"], dtype=float)
-    
+        hg = hdict["histogram_ground"]
+        he = hdict["histogram_excited"]
+        
+        
+        # Divide the edges values to have them in the unit specified
+        if signal_unit == 'mV':
+            edges = hdict["common_edges"] * 1e3
+            x_label += " (mV)"
+        elif signal_unit == 'uV':
+            edges = hdict["common_edges"] * 1e6
+            x_label += " (uV)"
+        elif signal_unit == 'V':
+            edges = hdict["common_edges"]
+            x_label += " (V)"
+
         if edges.ndim != 1 or edges.size != hg.size + 1 or edges.size != he.size + 1:
-            raise ValueError("`common_edges` must be length N+1 where N=len(histogram_*).")
+            raise ValueError("'common_edges' must be length N+1 where N=len(histogram_*).")
     
-        x_left = edges[:-1]
-        w = np.diff(edges)
-        centers = x_left + 0.5 * w
+        # Get left bing edges, bin width and bin centers
+        left_edges = edges[:-1]
+        bin_width = np.diff(edges)
+        centers = left_edges + 0.5 * bin_width
     
-        if kind == "separate":
-            return _separate_histogram_plot(x_left, w, hg, he, centers, labels, x_label, "Counts", title)
-    
-        fig, ax1 = plt.subplots(figsize=(7.5, 4.6))
-        _beautify_axis(ax1)
-    
-        # Always plot raw counts on left y-axis
-        if kind == "stacked":
-            _stacked_histogram_plot(ax1, x_left, w, hg, he, edges, labels)
-        elif kind == "overlay":
-            _overlay_histogram_plot(ax1, centers, hg, he, edges, labels)
+        # For the 'separate' type, generate two axes
+        if kind == "separate": # return immediately the plot
+            return _separate_histogram_plot(left_edges, bin_width, hg, he, centers, labels, x_label, "Counts", title)
+        # For all other types, use only on axis
         else:
-            raise ValueError("kind must be 'stacked', 'overlay', or 'separate'.")
-    
-        ax1.set_xlabel(x_label)
-        ax1.set_ylabel("Counts")
-        ax1.set_xlim(edges[0], edges[-1])
+            if not fig and not ax:  # Generate fig and axis handler if not provided by the user
+                fig, ax = plt.subplots(figsize=(7.5, 4.6))
+            _beautify_axis(ax)
+        # for the following types, edit labels and stuff later because they are the same
+            if kind == "stacked":
+                _stacked_histogram_plot(ax, left_edges, bin_width, hg, he, edges, labels)
+            elif kind == 'stacked_only':
+                _stacked_histogram_plot(ax, left_edges, bin_width, hg, he, edges, labels, stacked_only=True)
+            elif kind == "overlay":
+                fig, ax = plt.subplots(figsize=(7.5, 4.6))
+                _overlay_histogram_plot(ax, centers, hg, he, edges, labels)
+            else:
+                raise ValueError("'kind' must be 'stacked', 'stacked_only', 'overlay', or 'separate'.")
+        ax.set_xlabel(x_label)
+        ax.set_ylabel("Counts")
+        ax.set_xlim(edges[0], edges[-1])
         if title:
-            ax1.set_title(title)
+            ax.set_title(title)
     
+        # Fit the CDF and add to plot
         if plot_CDF:
-            ax2 = ax1.twinx()
-            _beautify_axis(ax2)
+            ax2 = ax.twinx()
+            _beautify_axis(ax2, right=True)
             ax2.set_ylabel("Probability")
             ax2.set_ylim(0, 1.05)
     
@@ -446,30 +481,30 @@ class SingleShotAnalysis(DataSet):
             )
     
             # Plot on right y-axis
-            ax2.plot(centers, ps, label="Singlet CDF", color="tab:blue", linestyle="--", linewidth=1.5)
-            ax2.plot(centers, pt, label="Triplet CDF", color="tab:orange", linestyle="--", linewidth=1.5)
+            ax2.plot(centers, ps, label="Ground CDF", color="tab:blue", linestyle="--", linewidth=1.5)
+            ax2.plot(centers, pt, label="Excited CDF", color="tab:orange", linestyle="--", linewidth=1.5)
             ax2.plot(centers, vis, label="Visibility", color="tab:green", linestyle="-", linewidth=1.5)
     
             # Annotate threshold on left axis
-            ax1.axvline(threshold, color="gray", linestyle=":", linewidth=1.5, label="Threshold")
-            ax1.annotate(
-                f"Max visibility = {best_vis:.3f}\nThreshold = {threshold*1e3:.3f} mV",
-                xy=(threshold, 0.95 * ax1.get_ylim()[1]),
+            ax.axvline(threshold, color="gray", linestyle=":", linewidth=1.5, label="Threshold")
+            ax.annotate(
+                f"Max visibility = {best_vis:.3f}\nThreshold = {threshold:.3f} {signal_unit}",
+                xy=(threshold, 0.95 * ax.get_ylim()[1]),
                 xytext=(10, -30), textcoords="offset points",
                 arrowprops=dict(arrowstyle="->", lw=1),
                 fontsize=10, ha="left"
             )
     
             # Combined legend
-            h1, l1 = ax1.get_legend_handles_labels()
+            h1, l1 = ax.get_legend_handles_labels()
             h2, l2 = ax2.get_legend_handles_labels()
-            ax1.legend(h1 + h2, l1 + l2, frameon=False)
+            ax.legend(h1 + h2, l1 + l2, frameon=False)
         else:
-            ax1.legend(frameon=False)
+            ax.legend(frameon=False)
     
         plt.tight_layout()
         plt.show()
-        return ax1
+        return fig, ax
         
     def histogram_chevron(self, mag_bins=100, time_bins=100, num_bins=100, plot = True):
         """
@@ -723,24 +758,27 @@ def rebin_counts(counts, old_edges, new_edges):
 #-----------------------------------------------# helper functions  
 ## plot_histogram helper function
 
-def _beautify_axis(ax):
+def _beautify_axis(ax, top=False, bottom=True, left=True, right=False):
     ax.grid(alpha=0.25, linestyle="--")
-    for spine in ("top", "right"):
-        ax.spines[spine].set_visible(False)
+    ax.spines['top'].set_visible(top)
+    ax.spines['bottom'].set_visible(bottom)
+    ax.spines['right'].set_visible(right)
+    ax.spines['left'].set_visible(left)
 
 
-def _stacked_histogram_plot(ax, x_left, w, hg, he, edges, labels):
+def _stacked_histogram_plot(ax, x_left, w, hg, he, edges, labels, stacked_only=False):
     h_total = hg + he
-    ax.bar(x_left, h_total, width=w, align="edge", alpha=0.35, edgecolor="black", linewidth=0.6, label="Total (stacked)")
-    ax.step(edges, np.r_[hg, hg[-1] if hg.size else 0.0], where="post", linewidth=1.8, alpha=0.85, label=labels[0])
-    ax.step(edges, np.r_[he, he[-1] if he.size else 0.0], where="post", linewidth=1.8, alpha=0.85, label=labels[1])
+    ax.bar(x_left, h_total, width=w, align="edge", alpha=0.35, edgecolor="black", linewidth=0.6, label="Total")
+    if not stacked_only:
+        ax.step(edges, np.r_[hg, hg[-1] if hg.size else 0.0], where="post", linewidth=1.8, alpha=0.85, label=labels[0])
+        ax.step(edges, np.r_[he, he[-1] if he.size else 0.0], where="post", linewidth=1.8, alpha=0.85, label=labels[1])
 
 
 def _overlay_histogram_plot(ax, centers, hg, he, edges, labels):
     ax.step(edges, np.r_[hg, hg[-1] if hg.size else 0.0], where="post", linewidth=1.6, label=labels[0])
     ax.step(edges, np.r_[he, he[-1] if he.size else 0.0], where="post", linewidth=1.6, label=labels[1])
-    ax.fill_between(centers, 0, hg, step="mid", alpha=0.15)
-    ax.fill_between(centers, 0, he, step="mid", alpha=0.15)
+    # ax.fill_between(centers, 0, hg, step="mid", alpha=0.15)
+    # ax.fill_between(centers, 0, he, step="mid", alpha=0.15)
 
 
 def _separate_histogram_plot(x_left, w, hg, he, centers, labels, x_label, y_label, title):
@@ -756,7 +794,7 @@ def _separate_histogram_plot(x_left, w, hg, he, centers, labels, x_label, y_labe
         axs[0].set_title(title)
     plt.tight_layout()
     plt.show()
-    return axs
+    return fig, axs
 
 
 def compute_visibility_from_histogram(hdict):
