@@ -288,7 +288,7 @@ class DataSet():
     
         return data_normalized
     
-    def normalize_data_from_average(self, axis=0, operation="subtract"):
+    def normalize_data_from_average(self, params_to_normalize:list=None, axis=0, operation="subtract"):
         """
         Normalize data with the average along one axis.
 
@@ -297,13 +297,11 @@ class DataSet():
             operation (default "subtract"): "subtract" or "divide".
         """
         assert operation == "subtract" or operation == "divide", "The operation must be either 'subtract' or 'divide'."
-        params_to_normalize = self.dependent_parameters
-        for param_name in ["param_0", "param_1"]:
+        if params_to_normalize is None:
+            params_to_normalize = list(self.dependent_parameters.keys())
+        for param_name in params_to_normalize:
             self.copy_dependent_parameter(param_name, param_name+'_normalized')
-            try:
-                values = self.dependent_parameters[param_name]['values']
-            except: # if param_1 is not there, just return function
-                return 
+            values = self.dependent_parameters[param_name]['values']
             if axis == 0:
                 if operation == 'subtract':
                     self.dependent_parameters[param_name+'_normalized']['values'] = values - np.average(values, axis=0)
