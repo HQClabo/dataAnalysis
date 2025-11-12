@@ -287,6 +287,37 @@ class DataSet():
             data_normalized = data_raw / data_bg_converted
     
         return data_normalized
+    
+    def normalize_data_from_average(self, axis=0, operation="subtract"):
+        """
+        Normalize data with the average along one axis.
+
+        Parameters:
+            axis (default 0): axis along which to calculate and subtract the average.
+            operation (default "subtract"): "subtract" or "divide".
+        """
+        assert operation == "subtract" or operation == "divide", "The operation must be either 'subtract' or 'divide'."
+        params_to_normalize = self.dependent_parameters
+        for param_name in ["param_0", "param_1"]:
+            self.copy_dependent_parameter(param_name, param_name+'_normalized')
+            try:
+                values = self.dependent_parameters[param_name]['values']
+            except: # if param_1 is not there, just return function
+                return 
+            if axis == 0:
+                if operation == 'subtract':
+                    self.dependent_parameters[param_name+'_normalized']['values'] = values - np.average(values, axis=0)
+                elif operation == 'divide':
+                    self.dependent_parameters[param_name+'_normalized']['values'] = values / np.average(values, axis=0)
+            elif axis == 1:
+                if operation == 'subtract':
+                    self.dependent_parameters[param_name+'_normalized']['values'] = (values.T - np.average(values, axis=1)).T
+                elif operation == 'divide':
+                    self.dependent_parameters[param_name+'_normalized']['values'] = (values.T / np.average(values, axis=1)).T
+
+
+
+
 
     def derive_data(self, parameters, axis=0):
         """
