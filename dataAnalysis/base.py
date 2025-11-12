@@ -3,10 +3,20 @@ import numpy as np
 import qcodes as qc
 from qcodes.dataset.data_export import DSPlotData
 from qcodes.dataset.plotting import _rescale_ticks_and_units, plot_dataset
+from qcodes.dataset.descriptions.param_spec import ParamSpec
 import matplotlib.pyplot as plt
 import copy
 
 def val_to_index(array, value):
+    """
+    Find the index corresponding to a certain value in an array. The array is assumed to be sorted, but not necessarily in ascending order.
+
+    Args:
+        array: Array where to look for the item.
+        value: Value whose index should be found.
+    
+    Returns: An integer number representing the index at which the value is in the array.
+    """
     start = array[0]
     step = array[1] - array[0]
     result =  int((value - start)/step)
@@ -52,7 +62,7 @@ class DataSet():
         plot_2D(params_to_plot=None, cmap='viridis', **kwargs): Plots 2D data based on the specified parameters.
     
     """
-    def __init__(self, exp, run_id=None, station=None):
+    def __init__(self, exp, run_id:int|list=None, station=None):
         if run_id:
             self.run_id = run_id
         else:
@@ -109,6 +119,7 @@ class DataSet():
         self.dependent_parameters = dependent_values
         self.independent_parameters = independent_values
         self.dataset = dataset
+
 
     def copy_dependent_parameter(self, parameter_to_copy, copy_name):
         """
@@ -549,4 +560,74 @@ class DataSet():
         idx_min = (np.abs(array - values[0])).argmin() if values[0] else 0
         idx_max = (np.abs(array - values[1])).argmin() + 1 if values[1] else -1
         return slice(idx_min,idx_max)
+
+
+
+class ConcatenatedDataSet(DataSet):
+    def __init__(self, exp, run_id:list, outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, station=None):
+        self.run_id = run_id
+        self.exp = exp
+        self.conn = self.exp.conn
+        self.station = station
+        self.outer_param_values = outer_param_values if outer_param_values is not None else np.arange(run_id[1]-run_id[0])
+        self.outer_param_name = outer_param_name if outer_param_name!=None else "outer_param"
+        self.outer_param_unit = outer_param_unit if outer_param_unit!=None else ""
+    
+        assert isinstance(run_id, list) and len(run_id)==2, "Error: run_id must be an integer or a list of two elements [start_run_id, end_run_id]."
+
+        assert run_id[1] - run_id[0] + 1 == len(outer_param_values), "The number of run ids to concatenate and the length of the outer parameter array must be the same."
+
+        self.extract_data()
+
+    def extract_data(self):
+        self.dataset = np.array([])
+        self.independent_parameters = {}
+        # Outer loop parameter goes into x
+        outer_paramspec = ParamSpec(self.outer_param_name +'_axis0', 'numeric', self.outer_param_name, self.outer_param_unit, [], [])
+        self.independent_parameters['x'] = {'name': 'x', 'paramspec': outer_paramspec, 'values': self.outer_param_values}
+        self.dependent_parameters = {}
+
+        #############
+        # Read inner loop parameter and num/names of dependent parameters from the first run id
+        rid = self.run_id[0]
+        dataset = qc.load_by_id(rid, self.exp.conn)
+        df = dataset.to_pandas_dataframe()
+        interdeps = dataset.description.interdeps.dependencies
+        paramspecs = dataset.paramspecs
+        dependent_parameters = dataset.description.interdeps.non_dependencies
+        n_independent_parameters = 0
+        for param in dependent_parameters:
+            independent_parameters = interdeps[param]
+            n_independent_parameters = max(n_independent_parameters, len(independent_parameters))
+        # Inner loop parameter goes into y
+        assert n_independent_parameters == 1, "Can only concatenate multiple 1D datasets but the provided ones are 2D."
+        self.independent_parameters['y'] = {'name': 'y', 'paramspec': paramspecs[independent_parameters[0].name], 'values': df[dependent_parameters[0].name].index.values}
+        # Create dictionaries for dependent parameters, but make them empty for now
+        for i, param in enumerate(dependent_parameters):
+            paramspec = paramspecs[param.name]
+            current_depend_on = paramspecs[param.name].depends_on
+            paramspec._depends_on = [self.outer_param_name +'_axis0', current_depend_on]
+            self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspecs[param.name], 'values': df[param.name].values}
+
+        ##############
+        # Concatenate the data
+        for rid in range(self.run_id[0]+1, self.run_id[1]+1):
+            dataset = qc.load_by_id(rid, self.exp.conn)
+            df = dataset.to_pandas_dataframe()
+            interdeps = dataset.description.interdeps.dependencies
+            paramspecs = dataset.paramspecs
+            dependent_parameters = dataset.description.interdeps.non_dependencies
+
+            for i, param in enumerate(dependent_parameters):
+                self.dependent_parameters[f'param_{i}']['values'] = np.vstack((self.dependent_parameters[f'param_{i}']['values'], df[param.name].values))
+
+        ##############
+        # Finally, transpose
+        for i, param in enumerate(dependent_parameters):
+            self.dependent_parameters[f'param_{i}']['values'] = self.dependent_parameters[f'param_{i}']['values'].T
+                
+
+
+
+
 
