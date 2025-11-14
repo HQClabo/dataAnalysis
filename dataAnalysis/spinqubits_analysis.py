@@ -1,29 +1,3 @@
-"""
-Version: 1.0
-Module: spinqubits_analysis.py
-
-A class to analyze the spin qubits. 
-Section 
-I: qubit analysis
-    1D fit=====> T1, T2 .
-    2D fit=====> Chevron fit, Ramsy Fit
-II: Single shot analysis
-    1. time trace and histogram
-    2. chevron pattern
-    
-## update notes:
-1. CHevron Fit
-2. Ramsy Fit
-3. gTensorAnalysis
-    1. Vector magnet
-    2. g tensor fitting
-    3. Noise spectrum analysis
-
-Author: [Pannnnnnn / HQC]
-create_Date: [2025-10-27]
-V1_Date: [2025-10-29]
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import PowerNorm
@@ -36,7 +10,7 @@ import lmfit
 from scipy.special import erf
 from numpy.polynomial.legendre import leggauss
 
-from dataAnalysis.base import DataSet
+from dataAnalysis.base import DataSet, ConcatenatedDataSet
 import numbers
 
 
@@ -279,6 +253,16 @@ class SpinQubitAnalysis(DataSet):
         ax.grid(True)
         ax.set_xlim(0, xlimit*t[-1]*scale)
         return ax
+
+class BFieldInPlaneAngleSweep(DataSet, ConcatenatedDataSet):
+    def __init__(self, exp, run_id:int|list, angle_values=None, angle_label="In-plane angle", angle_unit="Deg"):
+        if isinstance(run_id, int):
+            super(DataSet, self).__init__(exp, run_id)
+        elif isinstance(run_id, list):
+            super(ConcatenatedDataSet, self).__init__(exp, run_id, angle_values, angle_label, angle_unit)
+
+    def find_resonances(min_separation=0, use_phase=False):
+        pass #work in progress
         
         
 class SingleShotAnalysis(DataSet):
