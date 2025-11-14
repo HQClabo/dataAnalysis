@@ -40,7 +40,7 @@ import scipy
 from scipy.special import erf
 from numpy.polynomial.legendre import leggauss
 
-from dataAnalysis.base import DataSet
+from dataAnalysis.base import DataSet, ConcatenatedDataSet
 import numbers
 
 
@@ -234,6 +234,86 @@ class SpinQubitAnalysis(DataSet):
         ax.grid(True)
         ax.set_xlim(0, xlimit*t[-1]*scale)
         return ax
+
+class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
+    def __init__(self, exp, run_id:int|list, angle_values=None, angle_label="In_plane_angle", angle_unit="Deg"):
+        if isinstance(run_id, int):
+            DataSet.__init__(self, exp, run_id)
+        elif isinstance(run_id, list):
+            if angle_values is None:
+                num_in_plane_angles = run_id[1] - run_id[0] + 1
+                angle_values = np.linspace(0, 360, num_in_plane_angles)
+            ConcatenatedDataSet.__init__(self, exp, run_id, angle_values, angle_label, angle_unit)
+        self.freq = self.independent_parameters['y']['values']
+        self.angle = self.independent_parameters['x']['values']
+        self.mag = self.dependent_parameters['param_0']['values']
+
+    def normalize_data_from_average(self, params_to_normalize = None, axis=0, operation="subtract"):
+        super().normalize_data_from_average(params_to_normalize, axis, operation)
+        self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
+
+
+    def find_resonances(self, min_separation_n_points=0, filter_percentile=None, sort_by='freq'):
+        # Determine whether to use normalize data or not
+        if hasattr(self, 'mag_norm'):
+            data = self.mag_norm
+        else:
+            data = self.mag
+
+        num_freqs = len(self.freq)
+        num_angles = len(self.angle)
+        idx1 = -np.ones(num_angles, dtype=int)
+        idx2 = -np.ones(num_angles, dtype=int)
+        a1   = np.full(num_angles, np.nan, dtype=float)
+        a2   = np.full(num_angles, np.nan, dtype=float)
+
+        for angle_index in range(num_angles):
+            # Take the linecut for the current angle value
+            col = data[:, angle_index]
+            working_linecut = col.copy()
+
+            # Optional simple background removal
+            if filter_percentile is not None:
+                thr = np.percentile(working_linecut, filter_percentile)
+                working_linecut[working_linecut < thr] = -np.inf
+
+            # Fin the indices of the top-2 values
+            top2 = np.argpartition(working_linecut, -2)[-2:]
+            top2 = top2[np.argsort(working_linecut[top2])[::-1]]  # sort by decreasing amplitude
+            i1 = int(top2[0])
+            i2 = int(top2[1])
+
+            # Enforce a minimum separation if requested
+            if min_separation_n_points > 0 and abs(i1 - i2) < min_separation_n_points:
+                # look for the next best index not within min_sep of i1
+                mask = np.ones(num_freqs, dtype=bool)
+                lo_idx = max(0, i1 - min_separation_n_points)
+                hi_idx = min(num_freqs, i1 + min_separation_n_points + 1)
+                mask[lo_idx:hi_idx] = False
+                if filter_percentile is not None:
+                    mask &= (col >= thr)
+                if np.any(mask):
+                    j = np.argmax(working_linecut[mask])
+                    i2 = int(np.flatnonzero(mask)[j])
+                    # i2 = j
+                
+
+            # Save the values
+            idx1[angle_index], a1[angle_index] = i1, col[i1]
+            if i2 >= 0 and np.isfinite(working_linecut[i2]):
+                idx2[angle_index], a2[angle_index] = i2, col[i2]
+
+            # optional reorder by frequency (so f1 <= f2)
+            if sort_by == "freq" and idx2[angle_index] >= 0 and self.freq[idx1[angle_index]] > self.freq[idx2[angle_index]]:
+                idx1[angle_index], idx2[angle_index] = idx2[angle_index], idx1[angle_index]
+                a1[angle_index], a2[angle_index]     = a2[angle_index], a1[angle_index]
+
+        f1 = self.freq[idx1]
+        f2 = np.where(idx2 >= 0, self.freq[idx2], np.nan)
+
+        
+
+        return {"idx1": idx1, "idx2": idx2, "f1": f1, "f2": f2, "a1": a1, "a2": a2, "phi": self.angle}
         
     def _ramsey2d(self, t_s, f_Hz, y0, A, f0, phi, T2s,offset_t, alpha):
         tt   = np.asarray(t_s)[:, None]                   # (Nt,1)
