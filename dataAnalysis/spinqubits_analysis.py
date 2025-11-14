@@ -12,8 +12,10 @@ II: Single shot analysis
     2. chevron pattern
     
 ## update notes:
-1. CHevron Fit
-2. Ramsy Fit
+1. CHevron Fit done
+2. Ramsy Fit done
+
+##following alexei already did.
 3. gTensorAnalysis
     1. Vector magnet
     2. g tensor fitting
@@ -22,6 +24,7 @@ II: Single shot analysis
 Author: [Pannnnnnn / HQC]
 create_Date: [2025-10-27]
 V1_Date: [2025-10-29]
+V1.1_Date: [2025-11-14]
 """
 
 import numpy as np
@@ -32,6 +35,7 @@ from scipy.stats import norm
 from scipy.optimize import curve_fit, minimize
 from lmfit import Model, create_params, Parameters
 import lmfit
+import scipy
 
 from scipy.special import erf
 from numpy.polynomial.legendre import leggauss
@@ -131,7 +135,6 @@ class SpinQubitAnalysis(DataSet):
             "T1_stderr": T1_stderr,
             "r2": r2,
         }
-        
     def plot_T1_fit(self, fit_res=None, ax=None, show=True, time_unit='ns'):
         """
         Plot experimental T1 relaxation data and fitted curve.
@@ -181,61 +184,13 @@ class SpinQubitAnalysis(DataSet):
         if show:
             plt.tight_layout()
             plt.show()
-        
-    def _model_T2star(self, tt, y0, A, f, phi, T2s, alpha=2):
-        return y0 + A*np.cos(2*np.pi*f*tt + phi) * np.exp(-(np.maximum(tt,0)/T2s)**alpha)
-        
+
     def fit_T2star(self, f_hint=None, alpha=2.0):
         """
         Fit y(t) ≈ y0 + A cos(2π f t + φ) * exp(-(t/T2*)**alpha)
         Returns dict with T2*, f, phase, etc.  t in seconds.
         """
-        y = self.signal_mag
-        t = self.time
-
-        t = np.asarray(t, float)
-        y = np.asarray(y, float)
-    
-    
-        # crude guesses
-        y0  = float(np.mean(y))
-        A0  = 0.5*float(y.max()-y.min()) or 1e-6
-        dt  = float(np.median(np.diff(t))) if t.size > 1 else 1e-9
-        
-        if f_hint is None:
-            Y    = np.abs(np.fft.rfft((y - y0) * np.hanning(len(y))))
-            freqs= np.fft.rfftfreq(len(y), d=dt)
-            idx  = np.argmax(Y[1:]) + 1 if Y.size > 1 else 0
-            
-            f0   = float(freqs[idx]) if idx < freqs.size else 1.0/max(t[-1]-t[0], 1e-6)
-            print(f0)
-        else:
-            f0 = float(f_hint)
-        phi0 = 0.0
-        T20  = max(0.2*(t[-1]-t[0]), 5*dt)
-    
-        # bounds
-        p0    = [y0, A0, f0, phi0, T20]
-    
-        popt, pcov = curve_fit(self._model_T2star, t, y, p0=p0, maxfev=10000)
-        yfit = self._model_T2star(t, *popt)
-
-        ss_res = float(np.sum((y - yfit)**2))
-        ss_tot = float(np.sum((y - np.mean(y))**2))
-        r2     = 1.0 - ss_res/ss_tot
-        
-        return {
-            "T2_star": float(popt[4]),
-            "f": float(popt[2]),
-            "phi": float(popt[3]),
-            "A": float(popt[1]),
-            "y0": float(popt[0]),
-            "yfit": yfit,
-            "alpha": alpha,
-            "popt": popt,
-            "pcov": pcov,
-            "r2": r2
-        }
+        return _fit_T2star(self.time, self.signal_mag, f_hint, alpha)
         
     def plot_T2star_fit(self, fit_res = None, xlimit = 1, ax=None, alpha = 2, f_hint = None, time_unit="us", title="Ramsey (T2*) fit"):
         """
@@ -279,6 +234,220 @@ class SpinQubitAnalysis(DataSet):
         ax.grid(True)
         ax.set_xlim(0, xlimit*t[-1]*scale)
         return ax
+        
+    def _ramsey2d(self, t_s, f_Hz, y0, A, f0, phi, T2s,offset_t, alpha):
+        tt   = np.asarray(t_s)[:, None]                   # (Nt,1)
+        ff   = np.asarray(f_Hz)[None, :]                  # (1,Nf)
+    
+        env  = np.exp(-(tt/T2s)**alpha)
+        phase = 2*np.pi*(ff-f0)*(tt+offset_t) + phi
+    
+        baseline = y0
+        return (y0+A*np.cos(phase)*env).ravel()
+    
+    def fit_T2_2D(self, alpha = 2.0, offset_t = 100, fit_methods = 'lbfgsb'):
+        # ==== data (make sure of units) ====
+        freq = self.bin             # Hz, shape (Nf,)
+        t_ns = self.time            # ns, shape (Nt,)
+        t_s  = t_ns * 1e-9                                    # seconds
+        signal_mag  = self.signal_mag.T          # (Nt, Nf)
+        
+        # ==== model ====
+        # Center *only the phase* in time to reduce f0-phi correlation.
+        
+        model = lmfit.Model(self._ramsey2d, independent_vars=['t_s', 'f_Hz'])
+        
+        # ==== initial guesses ====
+        A0    = 0.5*(np.max(signal_mag)-np.min(signal_mag))
+        
+        p = model.make_params(
+            y0=0, A=A0,
+            f0=float(np.mean(freq)),                          # start near mean
+            phi=0,
+            T2s=12e6,                                        # 10 µs
+            alpha=alpha,
+            offst_t = 0
+        )
+        # ==== bounds & choices ====
+        p['A'].set(min=A0*0.1, max=A0*2+A0*0.001)
+        p['alpha'].set(vary=False)  
+        p['offset_t'].set(vary=True)
+        p['phi'].set(vary = True)
+
+        p['T2s'].set(min=0, max=3*np.max(t_s))
+        p['f0'].set(min=freq.min(), max=freq.max())
+        p['phi'].set(min=-np.pi, max=np.pi)
+        p['offset_t'].set(min=0, max=1000)
+        
+        # ==== fit ====
+        res = model.fit(signal_mag.ravel(), params=p,
+                        t_s=t_s, f_Hz=freq,
+                        method=fit_methods)
+        signal_mag_fit     = res.best_fit.reshape(signal_mag.shape)
+        return res, signal_mag_fit
+
+            
+    # update the model after some calculation
+    def _rabi2d(self, t_s, f_Hz, f_rabi, y0, A, f0, phi, T2s, alpha):
+        if t_s.ndim == 1:
+            tt = np.asarray(t_s)[:, None]         # (Nt,1)
+            ff = np.asarray(f_Hz)[None, :]        # (1,Nf)
+    
+            env = np.exp(-np.power(tt / T2s, alpha))
+            general_rabi = (ff - f0)**2 + (f_rabi**2)
+            phase = 2*np.pi*np.sqrt(general_rabi) * tt + phi
+    
+            # population-type contrast: (f_rabi^2) / general_rabi
+            scale_factor = (f_rabi**2) / (general_rabi)
+    
+            # population oscillation: 0.5 * (1 - cos)
+            return (y0 + A * scale_factor * 0.5 * (1 - np.cos(phase)) * env).ravel()
+    
+        if t_s.ndim == 2:
+            tt = np.asarray(t_s)                  # (Nt,Nf)
+            ff = np.asarray(f_Hz)                 # (Nt,Nf)
+    
+            env = np.exp(-np.power(tt / T2s, alpha))
+            general_rabi = (ff - f0)**2 + (f_rabi**2)
+            phase = 2*np.pi*np.sqrt(general_rabi) * tt + phi
+    
+            scale_factor = (f_rabi**2) / (general_rabi)
+            return y0 + A * scale_factor * 0.5 * (1 - np.cos(phase)) * env
+
+        
+    def fit_T2_rabi_2D(self,alpha = 2, index = 50, fit_methods = 'lbfgsb'):
+        # ==== data (make sure of units) ====
+        freq = self.bin             # Hz, shape (Nf,)
+        t_s = self.time /10**9           # ns, shape (Nt,)
+        signal_mag  = self.signal_mag.T          # (Nt, Nf)
+        
+        # ==== model ====
+        # Center *only the phase* in time to reduce f0-phi correlation.
+        
+        model = lmfit.Model(self._rabi2d, independent_vars=['t_s', 'f_Hz'])
+        
+        res_1d = _fit_T2star(signal_mag[:,index], self.time, alpha = alpha)
+        # ==== initial guesses ====
+        y0  =  res_1d['y0']
+        T2s = res_1d['T2_star']*10**-9
+        A0  = res_1d['A']
+        f_rabi  = res_1d['f']*10**9
+        
+        p = model.make_params(
+            y0=y0, A=A0,
+            f0=float(np.mean(freq)),                       
+            phi=0,
+            T2s=T2s,                                     
+            alpha=alpha,
+            f_rabi = f_rabi
+        )
+        
+        # ==== bounds & choices ====
+        p['alpha'].set(vary=False) 
+        p['T2s'].set(min=0) 
+        p['f0'].set(min=0) 
+        p['f_rabi'].set(min=0) 
+        # ==== fit ====
+        res = model.fit(signal_mag.ravel(), params=p,
+                        t_s=t_s, f_Hz=freq,
+                        method=fit_methods)
+
+        freq,time = np.meshgrid(self.bin,self.time/10**9)
+        signal_mag_fit = self._rabi2d(time, freq,res.params['f_rabi'].value, 
+                                 res.params['y0'].value, 
+                                 res.params['A'].value, 
+                                 res.params['f0'].value, 
+                                 res.params['phi'].value, 
+                                 res.params['T2s'].value, 
+                                 res.params['alpha'].value)
+        
+        return res, signal_mag_fit
+        
+    def plot_fit_T2_2D(self, res, model = 'ramsey'):
+        def track(Z): 
+            peak_index = [] 
+            for i in range(Z.shape[1]): 
+                peak_index.append(scipy.signal.find_peaks(Z[:,i])) 
+            return peak_index
+        
+        # --- evaluate fitted surface (or use your own Z array) ---
+        freq = self.bin             # Hz, shape (Nf,)
+        t_ns = self.time            # ns, shape (Nt,)
+        t_s  = t_ns * 1e-9                                    # seconds
+        signal_mag  = self.signal_mag.T          # (Nt, Nf)
+
+        if model == 'ramsey':
+            f0   = res.params['f0'].value
+            phi  = res.params['phi'].value
+            y0  = res.params['y0'].value
+            T2s  = res.params['T2s'].value
+            A  = res.params['A'].value
+            offset_t  = res.params['offset_t'].value
+            alpha = res.params['alpha'].value
+        
+
+            # --- run your tracker on the FITTED surface ---
+
+            # 2. Evaluate model: returns flat array
+            signal_mag_flat = self._ramsey2d(t_s, freq, y0, A, f0, phi, T2s, offset_t, alpha)
+        if model == 'rabi':
+            f0   = res.params['f0'].value
+            phi  = res.params['phi'].value
+            y0  = res.params['y0'].value
+            T2s  = res.params['T2s'].value
+            A  = res.params['A'].value
+            alpha = res.params['alpha'].value
+            f_rabi = res.params['f_rabi'].value
+
+            # --- run your tracker on the FITTED surface ---
+
+            # 2. Evaluate model: returns flat array
+            signal_mag_flat = self._rabi2d(t_s, freq,f_rabi, y0, A, f0, phi, T2s, alpha)
+        
+        # 3. Reshape to 2D (time x freq)
+        signal_mag_fit = signal_mag_flat.reshape(t_s.size, freq.size)
+        
+        # 4. Run peak tracker (per-column)
+        peaks_per_col = track(signal_mag_fit)
+
+        # --- convert peak indices -> (freq, time) coordinates for plotting ---
+        f_pts, t_pts = [], []
+        for j, item in enumerate(peaks_per_col):
+            # handle either tuple (idx, props) or just idx array
+            idxs = item[0] if isinstance(item, tuple) or (isinstance(item, list) and len(item) == 2) else np.asarray(item)
+            if idxs is None or len(idxs) == 0: 
+                continue
+            f_pts.extend([freq[j]] * len(idxs))
+            t_pts.extend(t_ns[idxs])
+        
+        f_pts = np.asarray(f_pts)
+        t_pts = np.asarray(t_pts)
+        
+        # --- plot experimental map and overlay the peak coordinates ---
+        fig, ax = plt.subplots(figsize=(8.2, 5.2))
+        
+        # --- experimental background ---
+        pcm = ax.pcolormesh(freq, t_ns, signal_mag, shading="auto", cmap="viridis")
+        cbar = plt.colorbar(pcm, ax=ax, pad=0.02)
+        cbar.set_label("Experimental signal")
+        
+        # --- peak overlay (visually improved) ---
+        ax.scatter(f_pts, t_pts,
+                   s=16,                      # larger dots
+                   facecolors='deepskyblue', # fill color
+                   edgecolors='black',       # contrast outline
+                   linewidths=0.4,
+                   alpha=0.9,
+                   label="peaks from fit")
+        
+        # --- axis & labels ---
+        ax.set_xlabel("Frequency (Hz)")
+        ax.set_ylabel("Time (ns)")
+        ax.legend(loc="upper right", frameon=True)
+        ax.grid(alpha=0.2, linestyle="--")
+        fig.tight_layout()
+        plt.show()
+        return fig,ax
         
         
 class SingleShotAnalysis(DataSet):
@@ -453,7 +622,6 @@ class SingleShotAnalysis(DataSet):
             elif kind == 'stacked_only':
                 _stacked_histogram_plot(ax, left_edges, bin_width, hg, he, edges, labels, stacked_only=True)
             elif kind == "overlay":
-                fig, ax = plt.subplots(figsize=(7.5, 4.6))
                 _overlay_histogram_plot(ax, centers, hg, he, edges, labels)
             else:
                 raise ValueError("'kind' must be 'stacked', 'stacked_only', 'overlay', or 'separate'.")
@@ -714,7 +882,64 @@ class Histogram2D(SingleShotAnalysis):
         
         def plot_2d_histogram(self):
             histogram_time_trace
+
+
+
+##fitting function for T2
+def _model_T2star(tt, y0, A, f, phi, T2s, alpha=1):
+        return y0 + A*np.cos(2*np.pi*f*tt + phi) * np.exp(-(np.maximum(tt,0)/T2s)**alpha)
         
+def _fit_T2star(signal_mag, time, f_hint=None, alpha=2.0):
+    """
+    Fit y(t) ≈ y0 + A cos(2π f t + φ) * exp(-(t/T2*)**alpha)
+    Returns dict with T2*, f, phase, etc.  t in seconds.
+    """
+    y = signal_mag
+    t = time
+
+    t = np.asarray(t, float)
+    y = np.asarray(y, float)
+
+
+    # crude guesses
+    y0  = float(np.mean(y))
+    A0  = 0.5*float(y.max()-y.min()) or 1e-6
+    dt  = float(np.median(np.diff(t))) if t.size > 1 else 1e-9
+    phi0 = 0.0
+    T20  = max(0.2*(t[-1]-t[0]), 5*dt)
+
+    
+    if f_hint is None:
+        Y    = np.abs(np.fft.rfft((y - y0) * np.hanning(len(y))))
+        freqs= np.fft.rfftfreq(len(y), d=dt)
+        idx  = np.argmax(Y[1:]) + 1 if Y.size > 1 else 0
+        
+        f0   = float(freqs[idx]) if idx < freqs.size else 1.0/max(t[-1]-t[0], 1e-6)
+        print(f0)
+    else:
+        f0 = float(f_hint)
+    # bounds
+    p0    = [y0, A0, f0, phi0, T20]
+
+    popt, pcov = curve_fit(_model_T2star, t, y, p0=p0, maxfev=100000)
+    yfit = _model_T2star(t, *popt)
+
+    ss_res = float(np.sum((y - yfit)**2))
+    ss_tot = float(np.sum((y - np.mean(y))**2))
+    r2     = 1.0 - ss_res/ss_tot
+    
+    return {
+        "T2_star": float(popt[4]),
+        "f": float(popt[2]),
+        "phi": float(popt[3]),
+        "A": float(popt[1]),
+        "y0": float(popt[0]),
+        "yfit": yfit,
+        "alpha": alpha,
+        "popt": popt,
+        "pcov": pcov,
+        "r2": r2
+    }
 
 def plot_2D_histogram(exp,run_id,station, num_bins,integration_time_array, plot_1D = True, xmax = None, xmin = None, time_unit = 'us', plot_visibility = False, plot_threshold = False):
     
