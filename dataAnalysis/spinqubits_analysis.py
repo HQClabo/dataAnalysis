@@ -560,7 +560,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         Plot the calculated g factor in the plane.
 
         Args:
-            angle_label: If None, labels are in degrees. If 'xy', 'yz' or 'zx', then the in-plane axes labels are used.
+            angle_label: If None, labels are in degrees. If 'xy', 'yz' or 'xz', then the in-plane axes labels are used.
 
         Returns: fig, ax, (plot1, plot2)
         """
@@ -579,8 +579,8 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             ax.set_xticklabels(['+x', '', '+y', '', '-x', '', '-y', ''])
         elif angle_labels == 'yz':
             ax.set_xticklabels(['+y', '', '+z', '', '-y', '', '-z', ''])
-        elif angle_labels == 'zx':
-            ax.set_xticklabels(['+z', '', '+x', '', '-z', '', '-x', ''])
+        elif angle_labels == 'xz':
+            ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
 
         return fig, ax, (plot1, plot2)
 
