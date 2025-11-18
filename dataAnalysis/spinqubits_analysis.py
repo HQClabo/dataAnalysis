@@ -13,7 +13,7 @@ II: Single shot analysis
     
 ## update notes:
 1. CHevron Fit done
-2. Ramsy Fit done
+2. Ramsey Fit done
 
 ##following alexei already did.
 3. gTensorAnalysis
@@ -62,16 +62,23 @@ class SpinQubitAnalysis(DataSet):
     """
     Data analysis class for .
     """
-    def __init__(self, exp, run_id, station=None):
+    def __init__(self, exp, run_id, station=None, transpose = True):
+        self.transpose = transpose
         try:
             if isinstance(run_id, list) and not run_id:
                 raise ValueError('run_id must be a non-empty list or integer.')
             elif isinstance(run_id, numbers.Integral) and not isinstance(run_id, bool):
                 super().__init__(exp=exp, run_id=run_id, station=station)
-                self.time = self.independent_parameters['y']['values'] 
-                self.bin = self.independent_parameters['x']['values']
-                self.signal_mag = self.dependent_parameters['param_0']['values'].T
-                self.signal_pha = self.dependent_parameters['param_1']['values'].T
+                if transpose == True:
+                    self.time = self.independent_parameters['y']['values'] 
+                    self.bin = self.independent_parameters['x']['values']
+                    self.signal_mag = self.dependent_parameters['param_0']['values'].T
+                    self.signal_pha = self.dependent_parameters['param_1']['values'].T
+                else:
+                    self.time = self.independent_parameters['x']['values']
+                    self.bin = self.independent_parameters['y']['values']
+                    self.signal_mag = self.dependent_parameters['param_0']['values']
+                    self.signal_pha = self.dependent_parameters['param_1']['values']
             else:
                 self.time = []
                 self.bin = []
@@ -88,7 +95,7 @@ class SpinQubitAnalysis(DataSet):
             self.time = self.independent_parameters['x']['values'] 
             self.signal_mag = self.dependent_parameters['param_0']['values'].T
             self.signal_pha = self.dependent_parameters['param_1']['values'].T
-    
+
     def fit_T1(self):
         """
         Fit T1 from a relaxation trace using: y(t) = y_inf + A * exp(-t/T1)
@@ -203,7 +210,7 @@ class SpinQubitAnalysis(DataSet):
         Fit y(t) ≈ y0 + A cos(2π f t + φ) * exp(-(t/T2*)**alpha)
         Returns dict with T2*, f, phase, etc.  t in seconds.
         """
-        return _fit_T2star(self.time, self.signal_mag, f_hint, alpha)
+        return _fit_T2star(self.signal_mag,self.time, f_hint, alpha)
         
     def plot_T2star_fit(self, fit_res = None, xlimit = 1, ax=None, alpha = 2, f_hint = None, time_unit="us", title="Ramsey (T2*) fit"):
         """
@@ -330,18 +337,20 @@ class SpinQubitAnalysis(DataSet):
             return y0 + A * scale_factor * 0.5 * (1 - np.cos(phase)) * env
 
         
-    def fit_T2_rabi_2D(self,alpha = 2, index = 50, fit_methods = 'lbfgsb'):
+    def fit_T2_rabi_2D(self,alpha = 2, index = 50, fit_methods = 'lbfgsb', flip_cut = False):
         # ==== data (make sure of units) ====
-        freq = self.bin             # Hz, shape (Nf,)
-        t_s = self.time /10**9           # ns, shape (Nt,)
-        signal_mag  = self.signal_mag.T          # (Nt, Nf)
-        
+        freq = self.bin           
+        t_s = self.time /10**9        
+        signal_mag  = self.signal_mag.T      
+    
         # ==== model ====
         # Center *only the phase* in time to reduce f0-phi correlation.
         
         model = lmfit.Model(self._rabi2d, independent_vars=['t_s', 'f_Hz'])
-        
-        res_1d = _fit_T2star(signal_mag[:,index], self.time, alpha = alpha)
+        if flip_cut == False:
+            res_1d = _fit_T2star(signal_mag[:,index], self.time, alpha = alpha)
+        else:
+            res_1d = _fit_T2star(signal_mag[index], self.time, alpha = alpha)
         # ==== initial guesses ====
         y0  =  res_1d['y0']
         T2s = res_1d['T2_star']*10**-9
@@ -389,8 +398,8 @@ class SpinQubitAnalysis(DataSet):
         freq = self.bin             # Hz, shape (Nf,)
         t_ns = self.time            # ns, shape (Nt,)
         t_s  = t_ns * 1e-9                                    # seconds
-        signal_mag  = self.signal_mag.T          # (Nt, Nf)
-
+        signal_mag  = self.signal_mag.T
+        
         if model == 'ramsey':
             f0   = res.params['f0'].value
             phi  = res.params['phi'].value
@@ -873,10 +882,10 @@ class SingleShotAnalysis(DataSet):
     
             return counts, edges
     
-        bin = self.bin
+        num_shot = self.num_shot
         time_array = self.time
         magnitude = self.signal_mag
-        counts, edges = process_single_data_set(bin, time_array, magnitude)
+        counts, edges = process_single_data_set(num_shot, time_array, magnitude)
         self.count_list.append(counts)
         self.edge_list.append(edges)
     
@@ -1104,7 +1113,7 @@ def plot_2D_histogram(exp,run_id,station, num_bins,integration_time_array, plot_
     for i in range(len(run_id)):
         run_id_eg = run_id[i]
         SSA = SingleShotAnalysis(exp, run_id_eg, station)
-        hist_dictionary = SSA.histogram_time_trace(num_bins = num_bins, plot = plot_1D)
+        hist_dictionary = SSA.build_histogram_time_trace(num_bins = num_bins, time_index=0, plot_average_time_trace = plot_1D)
         histogram_stack_list.append(hist_dictionary['histogram_stack'])
         histogram_ground_list.append(hist_dictionary['histogram_ground'])
         histogram_excited_list.append(hist_dictionary['histogram_excited'])
