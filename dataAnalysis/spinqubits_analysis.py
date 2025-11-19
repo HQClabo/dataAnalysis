@@ -210,7 +210,7 @@ class SpinQubitAnalysis(DataSet):
         Fit y(t) ≈ y0 + A cos(2π f t + φ) * exp(-(t/T2*)**alpha)
         Returns dict with T2*, f, phase, etc.  t in seconds.
         """
-        return _fit_T2star(self.signal_mag,self.time, f_hint, alpha)
+        return _fit_T2star(self.signal_mag,self.time, f_hint, alpha= alpha)
         
     def plot_T2star_fit(self, fit_res = None, xlimit = 1, ax=None, alpha = 2, f_hint = None, time_unit="us", title="Ramsey (T2*) fit"):
         """
@@ -1051,9 +1051,6 @@ def _fit_T2star(signal_mag, time, f_hint=None, alpha=2.0):
     y0  = float(np.mean(y))
     A0  = 0.5*float(y.max()-y.min()) or 1e-6
     dt  = float(np.median(np.diff(t))) if t.size > 1 else 1e-9
-    phi0 = 0.0
-    T20  = max(0.2*(t[-1]-t[0]), 5*dt)
-
     
     if f_hint is None:
         Y    = np.abs(np.fft.rfft((y - y0) * np.hanning(len(y))))
@@ -1065,9 +1062,12 @@ def _fit_T2star(signal_mag, time, f_hint=None, alpha=2.0):
     else:
         f0 = float(f_hint)
     # bounds
+    phi0 = 0.0
+    T20  = max(0.2*(t[-1]-t[0]), 5*dt)
+
     p0    = [y0, A0, f0, phi0, T20]
 
-    popt, pcov = curve_fit(_model_T2star, t, y, p0=p0, maxfev=100000)
+    popt, pcov = curve_fit(_model_T2star, t, y, p0=p0, maxfev=10000)
     yfit = _model_T2star(t, *popt)
 
     ss_res = float(np.sum((y - yfit)**2))
