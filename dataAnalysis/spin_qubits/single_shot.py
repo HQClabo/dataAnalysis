@@ -1,14 +1,5 @@
 import numpy as np
-from numpy.polynomial.legendre import leggauss
 import matplotlib.pyplot as plt
-from matplotlib.colors import PowerNorm
-from scipy import constants
-from scipy.optimize import curve_fit, minimize
-from scipy.special import erf
-import lmfit
-import scipy
-import numbers
-
 from dataAnalysis.base import DataSet
 
 class SingleShotMeasurement(DataSet):
@@ -22,7 +13,7 @@ class SingleShotMeasurement(DataSet):
             run_id (int, list): One single or a list of two integers with the meaning [run_id_ground, run_id_excited]
         
         """
-        if isinstance(run_id, numbers.Integral):    # one single run_id provided
+        if isinstance(run_id, int):    # one single run_id provided
             super().__init__(exp=exp, run_id=run_id, station=station)
             self.time = self.independent_parameters['y']['values'] 
             self.num_shot = self.independent_parameters['x']['values']
@@ -353,76 +344,3 @@ class Histogram:
 
         return fig, axs
     
-    def fit_histogram(
-        self,
-        integration_time=50000,
-        T1=50000,
-        VS=0.00235,
-        VT=0.00422,
-        num_restarts=6,
-        jitter=0.3,
-        show_fitting_result = False
-    ):
-        """
-        Fit 1D histograms to Barthel model and plot.
-    
-        Parameters
-        ----------
-        integration_time : float or list of float
-            Integration time(s) in ns.
-        T1 : float
-            Initial guess for T1 (in ns).
-        VS : float
-            Initial guess for singlet voltage.
-        VT : float
-            Initial guess for triplet voltage.
-        num_restarts : int
-            Number of random restarts for fitting.
-        jitter : float
-            Jitter level used in restarts.
-    
-        Returns
-        -------
-        histogram_dict : dict
-            Dictionary containing fit results and related data.
-        """
-        histogram_dict = {}
-    
-        if not hasattr(self, "count_list") or not self.count_list:
-            raise RuntimeError("Run histogram_chevron first to generate count_list and edge_list")
-    
-        integration_times = (
-            [integration_time] if isinstance(integration_time, (int, float))
-            else list(integration_time)
-        )
-        ## loop over all data sets.
-        for i, (counts, edges) in enumerate(zip(self.count_list, self.edge_list)):
-            
-            tm = float(integration_times[i]) if len(integration_times) > 1 else float(integration_time) ## time steps
-            Ntot = float(counts.sum())
-    
-            init_guess = dict(VS=VS, VT=VT) ## provide the initial guess of voltage at peak of single and peak of triplet
-            
-            fit = fit_barthel_one(counts, edges, tm, T1, Ntot,
-                                  init=init_guess, restarts=num_restarts, jitter=jitter)## main fitting funciton
-            if show_fitting_result:
-                print(f"Fit result for trace {i}:", fit)
-    
-            centers = 0.5 * (edges[:-1] + edges[1:])
-            lam = expected_counts_barthel(edges, tm, fit['VS'], fit['VT'], fit['sigma'], fit['pT'], T1, Ntot)
-    
-            result = plot_hist_with_cdf_bw(
-                counts, edges, fit['VS'], fit['VT'], fit['sigma'], fit['pT'], T1, tm, nq=128,
-                title=f'Histogram & CDFs at integration time={tm} ns'
-            )
-    
-            histogram_dict = {
-                "fit": fit,
-                "edges": edges,
-                "counts": counts,
-                "lam": lam
-            }
-            histogram_dict.update(result)
-    
-        self.histogram_dict = histogram_dict
-        return histogram_dict
