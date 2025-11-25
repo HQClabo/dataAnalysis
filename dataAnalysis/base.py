@@ -23,7 +23,7 @@ def val_to_index(array, value):
     if result < 0:
         return 0
     if result > len(array):
-        return [-1]
+        return -1
     return result
 
 def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, other_arrays=None):
