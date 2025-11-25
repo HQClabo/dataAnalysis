@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import constants
 import lmfit
-from dataAnalysis.base import DataSet, ConcatenatedDataSet
+from dataAnalysis.base import DataSet, ConcatenatedDataSet, val_to_index
 
 
 #####################################################################################################
@@ -37,68 +37,109 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
     def normalize_data_from_average(self, params_to_normalize = None, axis=0, operation="subtract"):
         super().normalize_data_from_average(params_to_normalize, axis, operation)
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
+    
+    def find_resonances(self, follow_resonances=False, search_center=None, search_span=None, min_separation=1):
+        if follow_resonances:
+            assert search_center is not None and search_span is not None, "If follow_resonances is True, search_center and search_span must be provided."
+            
+            # Convert range into indices
+            low_freq = search_center - search_span/2
+            high_freq = search_center + search_span/2
+            low_idx = val_to_index(self.freq, low_freq)
+            high_idx = val_to_index(self.freq, high_freq)
+        else:
+            low_idx = 0
+            high_idx = -1
 
-    def find_resonances(self, min_separation_n_points=0, filter_percentile=None, sort_by='freq'):
-        # Determine whether to use normalize data or not
         if hasattr(self, 'mag_norm'):
-            data = self.mag_norm
+                data = self.mag_norm
         else:
             data = self.mag
 
-        num_freqs = len(self.freq)
         num_angles = len(self.angle)
-        idx1 = -np.ones(num_angles, dtype=int)
-        idx2 = -np.ones(num_angles, dtype=int)
-        a1   = np.full(num_angles, np.nan, dtype=float)
-        a2   = np.full(num_angles, np.nan, dtype=float)
+        idx1_array = np.ones(num_angles, dtype=int)
+        idx2_array = np.ones(num_angles, dtype=int)
+        f1_array = np.array([])
+        f2_array = np.array([])
 
-        for angle_index in range(num_angles):
+        for angle_index, angle in enumerate(self.angle):
             # Take the linecut for the current angle value
             col = data[:, angle_index]
             working_linecut = col.copy()
+            idx1, idx2 = self.top_two_in_range(working_linecut, start=low_idx, end=high_idx, min_sep=min_separation)
+            f1 = self.freq[idx1]
+            f2 = self.freq[idx2]
 
-            # Optional simple background removal
-            if filter_percentile is not None:
-                thr = np.percentile(working_linecut, filter_percentile)
-                working_linecut[working_linecut < thr] = -np.inf
+            # Append results
+            idx1_array[angle_index] = idx1 if f1 < f2 else idx2
+            idx2_array[angle_index] = idx2 if f1 < f2 else idx1
+            f1_array = np.append(f1_array, min(f1, f2)) # f1 is always the lowest one
+            f2_array = np.append(f2_array, max(f1, f2))
 
-            # Fin the indices of the top-2 values
-            top2 = np.argpartition(working_linecut, -2)[-2:]
-            top2 = top2[np.argsort(working_linecut[top2])[::-1]]  # sort by decreasing amplitude
-            i1 = int(top2[0])
-            i2 = int(top2[1])
+            # Adjust search range for next iteration
+            if follow_resonances:
+                search_center = (f1 + f2)/2
+                low_freq = search_center - search_span/2
+                high_freq = search_center + search_span/2
+                low_idx = val_to_index(self.freq, low_freq)
+                high_idx = val_to_index(self.freq, high_freq)
 
-            # Enforce a minimum separation if requested
-            if min_separation_n_points > 0 and abs(i1 - i2) < min_separation_n_points:
-                # look for the next best index not within min_sep of i1
-                mask = np.ones(num_freqs, dtype=bool)
-                lo_idx = max(0, i1 - min_separation_n_points)
-                hi_idx = min(num_freqs, i1 + min_separation_n_points + 1)
-                mask[lo_idx:hi_idx] = False
-                if filter_percentile is not None:
-                    mask &= (col >= thr)
-                if np.any(mask):
-                    j = np.argmax(working_linecut[mask])
-                    i2 = int(np.flatnonzero(mask)[j])
-                    # i2 = j
-                
+        
+        self.results = {"idx1": idx1_array, "idx2": idx2_array, "f1": f1_array, "f2": f2_array}
 
-            # Save the values
-            idx1[angle_index], a1[angle_index] = i1, col[i1]
-            if i2 >= 0 and np.isfinite(working_linecut[i2]):
-                idx2[angle_index], a2[angle_index] = i2, col[i2]
+    def top_two_in_range(self, arr, start=0, end=None, min_sep=1):
+        """
+        Find the two highest values and their indices within arr[start:end],
+        with a minimum separation between the two indices.
 
-            # optional reorder by frequency (so f1 <= f2)
-            if sort_by == "freq" and idx2[angle_index] >= 0 and self.freq[idx1[angle_index]] > self.freq[idx2[angle_index]]:
-                idx1[angle_index], idx2[angle_index] = idx2[angle_index], idx1[angle_index]
-                a1[angle_index], a2[angle_index]     = a2[angle_index], a1[angle_index]
+        Parameters:
+        - arr: sequence of numbers
+        - start: inclusive start index (default 0)
+        - end: exclusive end index (default len(arr))
+        - min_sep: minimum required separation between indices (>= 1)
 
-        f1 = self.freq[idx1]
-        f2 = np.where(idx2 >= 0, self.freq[idx2], np.nan)
+        Returns:
+        - ((value1, idx1), (value2, idx2)) where idx1 and idx2 are the indices in arr
 
-        self.results = {"idx1": idx1, "idx2": idx2, "f1": f1, "f2": f2, "a1": a1, "a2": a2, "phi": self.angle}
+        Raises:
+        - ValueError if the range is too small or no valid pair exists under the
+        separation constraint.
+        """
+        if end is None or end > len(arr) or end == -1:
+            end = len(arr)
 
-        return self.results
+        if start < 0: 
+            start = 0
+
+        if not (0 <= start < end <= len(arr)):
+            raise ValueError(f"Invalid start/end range: start={start}, end={end}.")
+        if min_sep < 1:
+            raise ValueError("min_sep must be at least 1.")
+        
+        L = end - start
+        # Need at least two positions with separation min_sep => L >= min_sep + 1
+        if L < min_sep + 1:
+            raise ValueError("Range too small for the requested separation.")
+
+        indices = list(range(start, end))
+        # Sort indices by value desc; for ties, smaller index first (deterministic)
+        sorted_by_value = sorted(indices, key=lambda i: (arr[i], -i), reverse=True)
+
+        # i will be the index of the first max, j of the second max
+        # Find best index j with |j - i| >= min_sep
+        i = sorted_by_value[0]
+        best_j = None
+        best_j_val = None
+        for j in indices:
+            if abs(j - i) >= min_sep:
+                if best_j_val is None or arr[j] > best_j_val or (arr[j] == best_j_val and j < best_j):
+                    best_j_val = arr[j]
+                    best_j = j
+        if best_j is not None:
+            return i, best_j
+
+        # If we get here, no valid pair exists under the constraint
+        raise ValueError("No two indices satisfy the separation constraint within the given range.")
 
     def extract_g_factors(self, B_out=0, **kwargs):
         if not hasattr(self, "results"):
@@ -181,11 +222,6 @@ def build_B_vector_lab_frame(B_mag, theta, phi):
     B_x = B_mag * np.sin(theta_rad) * np.cos(phi_rad)
     B_y = B_mag * np.sin(theta_rad) * np.sin(phi_rad)
     B_z = B_mag * np.cos(theta_rad) * np.ones_like(phi_rad)
-
-    # # Clean small values (e.g., below 1e-5) to zero
-    # B_x = np.where(np.abs(B_x) < 1e-6, 0, B_x)
-    # B_y = np.where(np.abs(B_y) < 1e-6, 0, B_y)
-    # B_z = np.where(np.abs(B_z) < 1e-6, 0, B_z)
 
     return B_x, B_y, B_z
 
