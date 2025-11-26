@@ -153,7 +153,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
 
         return self.results
     
-    def plot_g_factors(self, angle_labels=None):
+    def plot_g_factors(self, angle_labels=None, fig=None, ax=None):
         """
         Plot the calculated g factor in the plane.
 
@@ -166,12 +166,15 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         g2 = self.results['g2']
         angle = self.angle
 
-        fig = plt.figure()
-        ax = fig.add_subplot(projection='polar')
-        plot1 = ax.scatter(np.deg2rad(angle),  g1, lw=2, label="Q1", alpha=0.7)
-        plot2 = ax.scatter(np.deg2rad(angle),  g2, lw=2, label="Q2", alpha=0.7)
-        legend = ax.legend()
-        legend.set_frame_on(False)
+        # If figure handlers not provided, create them
+        if fig is None:
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='polar')
+        elif ax is None:   
+            ax = fig.add_subplot(projection='polar')
+
+        _, _, plot1 = plot_polar(np.deg2rad(angle), g1, style='data', fig=fig, ax=ax, label='Q1', lw=1)
+        _, _, plot2 = plot_polar(np.deg2rad(angle), g2, style='data', fig=fig, ax=ax, label='Q2', lw=1)
 
         if angle_labels == 'xy':
             ax.set_xticklabels(['+x', '', '+y', '', '-x', '', '-y', ''])
@@ -181,6 +184,220 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
 
         return fig, ax, (plot1, plot2)
+    
+
+class GTensorCharacterization:
+    def __init__(self):
+        self.xy_measurements = []
+        self.yz_measurements = []
+        self.xz_measurements = []
+    
+    def add_measurement(self, measurement: BFieldInPlaneAngleSweep, type: str):
+        """
+        Add an in-plane angle sweep measurements to the class, to be considered for the g-factor fitting.
+
+        Parameters:
+        - measurement: An instance of BFieldInPlaneAngleSweep
+        - type: "xy", "yz" or "xz"
+        """
+        if type.lower() == "xy":
+            self.xy_measurements.append(measurement)
+        elif type.lower() == "yz":
+            self.yz_measurements.append(measurement)
+        elif type.lower() == "xz":
+            self.xz_measurements.append(measurement)
+        else:
+            raise ValueError("'type' must be either 'xy', 'yz' or 'xz'.")
+    
+    def fit_g_tensor(self, qubit:int=1, do_plots:bool=True):
+        """
+        Fit the g tensor using the provided in-plane sweep measurements. Such measurements must be added to the class before running this method using the method 'add_measurement'.
+
+        Parameters:
+        - qubit: integer number indicating which of the two qubits to fit.
+        - do_plots: Option to plot the data and the fit.
+        """
+        # Check that there are measurements loaded
+        xy_is_present = False
+        yz_is_present = False
+        xz_is_present = False
+        if self.xy_measurements != []:
+            xy_is_present = True
+        if self.yz_measurements != []:
+            yz_is_present = True
+        if self.xz_measurements != []:
+            xz_is_present = True
+        
+        if xy_is_present + yz_is_present + xz_is_present == 0:
+            print("No measurement has been loaded yet. Before running the fit, add them with the method 'add_measurement'. ")
+            return
+        
+        #----------------------------- Build data -----------------------------
+        Bx_array = []
+        By_array = []
+        Bz_array = []
+        g_factor_array = []
+
+        # xy sweeps
+        for dataset in self.xy_measurements:
+            Bz = dataset.B_out
+            B_in_mag = dataset.B_in_mag
+            for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
+                Bx, By, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle) # The order must be consistent with the measurements
+                Bx_array.append(Bx)
+                By_array.append(By)
+                Bz_array.append(Bz)
+                g_factor_array.append(g_factor)
+        # xy sweeps
+        for dataset in self.yz_measurements:
+            Bx = dataset.B_out
+            B_in_mag = dataset.B_in_mag
+            for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
+                By, Bz, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle)  # The order must be consistent with the measurements
+                Bx_array.append(Bx)
+                By_array.append(By)
+                Bz_array.append(Bz)
+                g_factor_array.append(g_factor)
+        # yz sweeps
+        for dataset in self.xz_measurements:
+            By = dataset.B_out
+            B_in_mag = dataset.B_in_mag
+            for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
+                Bx, Bz, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle) # The order must be consistent with the measurements
+                Bx_array.append(Bx)
+                By_array.append(By)
+                Bz_array.append(Bz)
+                g_factor_array.append(g_factor)
+
+        Bx_array = np.array(Bx_array)
+        By_array = np.array(By_array)
+        Bz_array = np.array(Bz_array)
+
+        #----------------------------- Fit -----------------------------
+        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array)
+
+        
+        #----------------------------- Plot -----------------------------
+        if do_plots:
+            best_fit = fit_result.best_fit
+
+            num_cols = xy_is_present + yz_is_present + xz_is_present
+            num_rows = max(len(self.xy_measurements), len(self.yz_measurements), len(self.xz_measurements))
+
+            cm = 1/2.54
+            fig_width = 9*cm*num_cols
+            fig_height = 7*cm*num_rows
+            fig, axes = plt.subplots(num_rows, num_cols, subplot_kw = {'projection' : 'polar'})
+            fig.set_size_inches(fig_width, fig_height)
+            fig.set_dpi(100)
+            
+
+            # Initialize counters
+            curr_col = -1   # column counter (each column for each different plane)
+            data_start_index = 0   # where the current data to be plotted starts from
+
+            if self.xy_measurements != []:
+                curr_col += 1
+                curr_row = -1   # row counter
+                for dataset in self.xy_measurements:
+                    curr_row += 1
+
+                    # Get the axes (bunch of different cases depending on num_rows and num_cols)
+                    if num_rows > 1 and num_cols > 1:
+                        ax = axes[curr_row][curr_col]
+                    elif num_rows == 1 and num_cols > 1:
+                        ax = axes[curr_col]
+                    elif num_rows > 1 and num_cols == 1:
+                        ax = axes[curr_row]
+                    elif num_rows == 1 and num_cols == 1:
+                        ax = axes
+
+                    # Get the values to be plotted
+                    angles_rad = np.deg2rad(dataset.angle)
+                    g_exp = dataset.results[f'g{qubit}']
+                    num_points = len(angles_rad)
+                    g_fitted = best_fit[data_start_index:data_start_index + num_points]
+
+                    # Plot 
+                    plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
+                    plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
+                    ax.set_xticklabels(['+x', '', '+y', '', '-x', '', '-y', ''])
+
+                    legend = ax.legend(bbox_to_anchor=(0,0))
+                    legend.set_frame_on(False)
+
+                    # Adjust start index for next plot
+                    data_start_index += num_points
+
+            if self.yz_measurements != []:
+                curr_col += 1
+                curr_row = -1   # row counter
+                for dataset in self.yz_measurements:
+                    curr_row += 1
+
+                    # Get the axes (bunch of different cases depending on num_rows and num_cols)
+                    if num_rows > 1 and num_cols > 1:
+                        ax = axes[curr_row][curr_col]
+                    elif num_rows == 1 and num_cols > 1:
+                        ax = axes[curr_col]
+                    elif num_rows > 1 and num_cols == 1:
+                        ax = axes[curr_row]
+                    elif num_rows == 1 and num_cols == 1:
+                        ax = axes
+
+                    # Get the values to be plotted
+                    angles_rad = np.deg2rad(dataset.angle)
+                    g_exp = dataset.results[f'g{qubit}']
+                    num_points = len(angles_rad)
+                    g_fitted = best_fit[data_start_index:data_start_index + num_points]
+
+                    # Plot 
+                    plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
+                    plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
+                    ax.set_xticklabels(['+y', '', '+z', '', '-y', '', '-z', ''])
+                    legend = ax.legend(bbox_to_anchor=(0,0))
+                    legend.set_frame_on(False)
+
+                    # Adjust start index for next plot
+                    data_start_index += num_points
+
+            if self.xz_measurements != []:
+                curr_col += 1
+                curr_row = -1   # row counter
+                for dataset in self.xz_measurements:
+                    curr_row += 1
+
+                    # Get the axes (bunch of different cases depending on num_rows and num_cols)
+                    if num_rows > 1 and num_cols > 1:
+                        ax = axes[curr_row][curr_col]
+                    elif num_rows == 1 and num_cols > 1:
+                        ax = axes[curr_col]
+                    elif num_rows > 1 and num_cols == 1:
+                        ax = axes[curr_row]
+                    elif num_rows == 1 and num_cols == 1:
+                        ax = axes
+
+                    # Get the values to be plotted
+                    angles_rad = np.deg2rad(dataset.angle)
+                    g_exp = dataset.results[f'g{qubit}']
+                    num_points = len(angles_rad)
+                    g_fitted = best_fit[data_start_index:data_start_index + num_points]
+
+                    # Plot 
+                    plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
+                    plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
+                    ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
+                    legend = ax.legend(bbox_to_anchor=(0,0))
+                    legend.set_frame_on(False)
+
+                    # Adjust start index for next plot
+                    data_start_index += num_points
+            plt.show()    
+            self.fig = fig
+            self.axes = axes
+
+        return fit_result
+    
 
 
 #####################################################################################################
@@ -301,9 +518,9 @@ def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zet
 
 def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab):
     params = lmfit.Parameters()
-    params.add('gx', 0.06, vary=True)
-    params.add('gy', 0.35, vary=True)
-    params.add('gz', 11, vary=True)
+    params.add('gx', 0.06, min=0, max=1, vary=True)
+    params.add('gy', 0.35, min=0, max=1, vary=True)
+    params.add('gz', 11, min=5, max=30, vary=True)
     params.add('phi', 0, vary=True, min=-180, max=180)
     params.add('theta', 0, vary=True, min=0, max=180)
     params.add('zeta', 0, vary=True, min=-180, max=180)
@@ -312,123 +529,7 @@ def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab):
     fit_result = model.fit(g_factor_lab, params, Bx_lab=Bx_lab, By_lab=By_lab, Bz_lab=Bz_lab)
     return fit_result, model
 
-def fit_g_factors_from_in_plane_sweeps(XY_sweep:BFieldInPlaneAngleSweep=None, YZ_sweep:BFieldInPlaneAngleSweep=None, XZ_sweep:BFieldInPlaneAngleSweep=None, qubit=1, do_plot=True):
-    if XY_sweep is None and YZ_sweep is None and XZ_sweep is None:
-        raise ValueError("At least one of XY_sweep, YZ_sweep and XZ_sweep must be not None.")
-    
-    #----------------------------- Build data -----------------------------
-    Bx_array = []
-    By_array = []
-    Bz_array = []
-    g_factor_array = []
-
-    xy_is_present = False
-    yz_is_present = False
-    zx_is_present = False
-
-    # XY sweep
-    if XY_sweep is not None:
-        xy_is_present = True
-        dataset = XY_sweep
-        Bz = dataset.B_out
-        B_in_mag = dataset.B_in_mag
-        for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
-            Bx, By, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle) # The order must be consistent with the measurements
-            Bx_array.append(Bx)
-            By_array.append(By)
-            Bz_array.append(Bz)
-            g_factor_array.append(g_factor)
-    # YZ sweep
-    if YZ_sweep is not None:
-        yz_is_present = True
-        dataset = YZ_sweep
-        Bx = dataset.B_out
-        B_in_mag = dataset.B_in_mag
-        for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
-            By, Bz, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle)  # The order must be consistent with the measurements
-            Bx_array.append(Bx)
-            By_array.append(By)
-            Bz_array.append(Bz)
-            g_factor_array.append(g_factor)
-    # YZ sweep
-    if XZ_sweep is not None:
-        zx_is_present = True
-        dataset = XZ_sweep
-        By = dataset.B_out
-        B_in_mag = dataset.B_in_mag
-        for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
-            Bx, Bz, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle) # The order must be consistent with the measurements
-            Bx_array.append(Bx)
-            By_array.append(By)
-            Bz_array.append(Bz)
-            g_factor_array.append(g_factor)
-
-    Bx_array = np.array(Bx_array)
-    By_array = np.array(By_array)
-    Bz_array = np.array(Bz_array)
-
-    #----------------------------- Fit -----------------------------
-    fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array)
-    print(fit_result.params)
-
-    
-    #----------------------------- Plot -----------------------------
-    if do_plot:
-        best_fit = fit_result.best_fit
-
-        num_plots = xy_is_present + yz_is_present + zx_is_present
-
-        fig, axes = plt.subplots(1, num_plots,subplot_kw = {'projection' : 'polar'})
-        cm = 1/2.54
-        # fig.set_size_inches(20*cm, 10*cm)
-        fig.set_dpi(200)
-        num_curr_plot = -1
-        prev_num_points = -1
-        if xy_is_present:
-            dataset = XY_sweep
-            num_curr_plot += 1
-            ax = axes[num_curr_plot]
-            # Get the values
-            angles_rad = np.deg2rad(dataset.angle)
-            g_exp = dataset.results[f'g{qubit}']
-            num_points = len(angles_rad)
-            g_fitted = best_fit[0:len(angles_rad)]
-            plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1)
-            plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k')
-            ax.set_xticklabels(['+x', '', '+y', '', '-x', '', '-y', ''])
-            prev_num_points = num_points
-
-        if yz_is_present:
-            dataset = YZ_sweep
-            num_curr_plot += 1
-            ax = axes[num_curr_plot]
-            # Get the values
-            angles_rad = np.deg2rad(dataset.angle)
-            g_exp = dataset.results[f'g{qubit}']
-            num_points = len(angles_rad)
-            g_fitted = best_fit[prev_num_points+1:prev_num_points+1+num_points]
-            plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1)
-            plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k')
-            ax.set_xticklabels(['+y', '', '+z', '', '-y', '', '-z', ''])
-            prev_num_points = num_points
-        if zx_is_present:
-            dataset = XZ_sweep
-            num_curr_plot += 1
-            ax = axes[num_curr_plot]
-            # Get the values
-            angles_rad = np.deg2rad(dataset.angle)
-            g_exp = dataset.results[f'g{qubit}']
-            num_points = len(angles_rad)
-            g_fitted = best_fit[prev_num_points+1:prev_num_points+1+num_points]
-            plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1)
-            plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k')
-            ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
-            prev_num_points = num_points
-    plt.show()    
-
-    return fit_result
-
-def plot_polar(angles_rad, r, style='data', fig=None, ax=None, label=None, **kwargs):
+def plot_polar(angles_rad, r, style='data', fig=None, ax=None, label=None, plot_legend=True, **kwargs):
     if fig is None or ax is None:
         fig = plt.figure()
         ax = fig.add_subplot(projection='polar')
@@ -436,7 +537,8 @@ def plot_polar(angles_rad, r, style='data', fig=None, ax=None, label=None, **kwa
         plot = ax.scatter(angles_rad,  r, label=label, alpha=0.7, **kwargs)
     elif style == 'line':
         plot = ax.plot(angles_rad, r, label=label, **kwargs)
-    legend = ax.legend()
-    legend.set_frame_on(False)
+    if plot_legend:
+        legend = ax.legend(bbox_to_anchor=(1, 1.1))
+        legend.set_frame_on(False)
 
     return fig, ax, plot
