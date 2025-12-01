@@ -265,12 +265,12 @@ def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zet
 
 def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab):
     params = lmfit.Parameters()
-    params.add('gx', 0.06, vary=True)
-    params.add('gy', 0.35, vary=True)
-    params.add('gz', 11, vary=True)
-    params.add('phi', 0, vary=True, min=-180, max=180)
-    params.add('theta', 0, vary=True, min=0, max=180)
-    params.add('zeta', 0, vary=True, min=-180, max=180)
+    params.add('gx', 0.06, vary=True, min=0.05, max=0.1)
+    params.add('gy', 0.35, vary=True,  min=0.1, max=0.5)
+    params.add('gz', 11, vary=True, min=7, max=15)
+    params.add('phi', 0, vary=True, min=-30, max=30)
+    params.add('theta', 0, vary=True, min=-3, max=3)
+    params.add('zeta', 0, vary=True, min=-30, max=30)
 
     model = lmfit.Model(model_g_factor_lab_frame, independent_vars=["Bx_lab", "By_lab", "Bz_lab"])
     fit_result = model.fit(g_factor_lab, params, Bx_lab=Bx_lab, By_lab=By_lab, Bz_lab=Bz_lab)
