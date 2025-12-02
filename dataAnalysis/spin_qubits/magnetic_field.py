@@ -540,7 +540,7 @@ def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict=None, limi
     }
 
     for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta']:
-
+        pass
 
     params.add('gx', 0.06, min=0, max=1, vary=True)
     params.add('gy', 0.35, min=0, max=1, vary=True)
