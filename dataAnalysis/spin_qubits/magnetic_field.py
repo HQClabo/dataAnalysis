@@ -283,7 +283,7 @@ class GTensorCharacterization:
 
         return fit_result
     
-    def plot_fit_result(self, fig, axes):
+    def plot_fit_result(self, fig=None, axes=None):
         best_fit = self.fit_result.best_fit
 
         num_cols = self.xy_is_present + self.yz_is_present + self.xz_is_present
@@ -534,10 +534,13 @@ def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict=None, limi
         'gx': (0, 1),
         'gy': (0, 1),
         'gz': (5, 30),
-        'phi': (0, 1),
-        'theta': (0, 1),
-        'zeta': (0, 1),
+        'phi': (-180, 180),
+        'theta': (0, 90),
+        'zeta': (-180, 180),
     }
+
+    for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta']:
+
 
     params.add('gx', 0.06, min=0, max=1, vary=True)
     params.add('gy', 0.35, min=0, max=1, vary=True)
