@@ -184,6 +184,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
 
         return fig, ax, (plot1, plot2)
+
     
 
 class GTensorCharacterization:
@@ -209,7 +210,7 @@ class GTensorCharacterization:
         else:
             raise ValueError("'type' must be either 'xy', 'yz' or 'xz'.")
     
-    def fit_g_tensor(self, qubit:int=1, method='leastsq'):
+    def fit_g_tensor(self, qubit:int=1, method='leastsq', guesses_dict={}, limits_dict={}):
         """
         Fit the g tensor using the provided in-plane sweep measurements. Such measurements must be added to the class before running this method using the method 'add_measurement'.
 
@@ -276,7 +277,7 @@ class GTensorCharacterization:
         Bz_array = np.array(Bz_array)
 
         #----------------------------- Fit -----------------------------
-        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method)
+        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict)
         self.fit_result = fit_result
         self.model = model
         
@@ -519,7 +520,7 @@ def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zet
     return g_factor_array
 
 
-def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict=None, limits_dict=None, method='leastsq'):
+def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits_dict={}, method='leastsq'):
     params = lmfit.Parameters()
 
     default_guesses = {
@@ -540,14 +541,17 @@ def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict=None, limi
     }
 
     for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta']:
-        pass
+        guess = guesses_dict[param_name] if param_name in guesses_dict.keys() else default_guesses[param_name]
+        limits = limits_dict[param_name] if param_name in limits_dict.keys() else default_limits[param_name]
+        par = lmfit.Parameter(param_name, value=guess, min=limits[0], max=limits[1])
+        params[param_name] = par
 
-    params.add('gx', 0.06, min=0, max=1, vary=True)
-    params.add('gy', 0.35, min=0, max=1, vary=True)
-    params.add('gz', 11, min=5, max=30, vary=True)
-    params.add('phi', 0, vary=True, min=-180, max=180)
-    params.add('theta', 0, vary=True, min=0, max=180)
-    params.add('zeta', 0, vary=True, min=-180, max=180)
+    # params.add('gx', 0.06, min=0, max=1, vary=True)
+    # params.add('gy', 0.35, min=0, max=1, vary=True)
+    # params.add('gz', 11, min=5, max=30, vary=True)
+    # params.add('phi', 0, vary=True, min=-180, max=180)
+    # params.add('theta', 0, vary=True, min=0, max=180)
+    # params.add('zeta', 0, vary=True, min=-180, max=180)
 
     model = lmfit.Model(model_g_factor_lab_frame, independent_vars=["Bx_lab", "By_lab", "Bz_lab"])
     fit_result = model.fit(g_factor_lab, params, Bx_lab=Bx_lab, By_lab=By_lab, Bz_lab=Bz_lab, method=method)
