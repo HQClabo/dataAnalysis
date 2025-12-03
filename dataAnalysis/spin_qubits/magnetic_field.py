@@ -38,7 +38,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         super().normalize_data_from_average(params_to_normalize, axis, operation)
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
     
-    def find_resonances(self, follow_resonances=False, search_center=None, search_span=None, min_separation=1):
+    def find_resonances(self, follow_resonances=False, search_center=None, search_span=None, min_separation=1, sort_by_freq = True):
         if follow_resonances:
             assert search_center is not None and search_span is not None, "If follow_resonances is True, search_center and search_span must be provided."
             
@@ -71,10 +71,16 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             f2 = self.freq[idx2]
 
             # Append results
-            idx1_array[angle_index] = idx1 if f1 < f2 else idx2
-            idx2_array[angle_index] = idx2 if f1 < f2 else idx1
-            f1_array = np.append(f1_array, min(f1, f2)) # f1 is always the lowest one
-            f2_array = np.append(f2_array, max(f1, f2))
+            if sort_by_freq:
+                idx1_array[angle_index] = idx1 if f1 < f2 else idx2
+                idx2_array[angle_index] = idx2 if f1 < f2 else idx1
+                f1_array = np.append(f1_array, min(f1, f2)) # f1 is always the lowest one
+                f2_array = np.append(f2_array, max(f1, f2))
+            else:
+                idx1_array[angle_index] = idx1
+                idx2_array[angle_index] = idx2
+                f1_array = np.append(f1_array, f1) 
+                f2_array = np.append(f2_array, f2)
 
             # Adjust search range for next iteration
             if follow_resonances:
@@ -140,6 +146,12 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
 
         # If we get here, no valid pair exists under the constraint
         raise ValueError("No two indices satisfy the separation constraint within the given range.")
+    
+    def swap_frequencies_in_angle_range(self, angle_low, angle_high):
+        low_idx = val_to_index(self.angle, angle_low)
+        high_idx = val_to_index(self.angle, angle_high)
+        for i in range(low_idx, high_idx):
+            self.results['f1'][i], self.results['f2'][i] = self.results['f2'][i], self.results['f1'][i]
 
     def extract_g_factors(self, B_out=0, **kwargs):
         if not hasattr(self, "results"):
@@ -280,6 +292,8 @@ class GTensorCharacterization:
         fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict)
         self.fit_result = fit_result
         self.model = model
+
+        print(fit_result.fit_report())
         
 
         return fit_result
