@@ -429,7 +429,7 @@ class DataSet():
                 raise ValueError(f'The parameter {param_name} does not exist in the data.')
 
             # Determine the time parameter based on the axis
-            if axis == 1:
+            if axis == 1 or len(self.dependent_parameters[param_name]['paramspec'].depends_on_) == 1:
                 t_param = self.independent_parameters['x']
             elif axis == 0:
                 t_param = self.independent_parameters['y']
@@ -439,6 +439,8 @@ class DataSet():
                 pass
             elif t_unit == 'ns':
                 dt = dt * 1e-9
+            else:
+                print(f'Warning: The time axis unit {t_unit} is not recognized. Proceeding without unit conversion for dt.')
 
             # Create frequency independent parameter
             self.copy_independent_parameter(t_param['name'], 'freq')
@@ -446,6 +448,7 @@ class DataSet():
             idx_pos = freq >= 0
             freq_positive = freq[idx_pos]
             freq_positive = freq_positive[1:]
+            # Set frequency independent parameter values and paramspec for proper labeling
             self.independent_parameters['freq']['values'] = freq_positive
             self.independent_parameters['freq']['paramspec'].name = 'freq'
             self.independent_parameters['freq']['paramspec'].label = 'freq'
@@ -455,11 +458,18 @@ class DataSet():
             self.copy_dependent_parameter(param_name, param_name+'_fft')
             data = self.dependent_parameters[param_name]['values']
             data_fft = np.fft.fft(data, axis=axis)
-            if axis == 1:
+            if len(self.dependent_parameters[param_name]['paramspec'].depends_on_) == 1:
+                # Only one independent parameter
+                depends_on = ['freq']
+                data_fft = data_fft[idx_pos]
+                data_fft = data_fft[1:]
+            elif axis == 1:
+                # Two independent parameters, FFT along axis 1
                 depends_on = ['freq', self.independent_parameters['y']['paramspec'].name]
                 data_fft = data_fft[:,idx_pos]
                 data_fft = data_fft[:,1:]
             elif axis == 0:
+                # Two independent parameters, FFT along axis 0
                 depends_on = [self.independent_parameters['x']['paramspec'].name, 'freq']
                 data_fft = data_fft[idx_pos]
                 data_fft = data_fft[1:]
