@@ -165,7 +165,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         # If we get here, no valid pair exists under the constraint
         raise ValueError("No two indices satisfy the separation constraint within the given range.")
     
-    def swap_frequencies_in_angle_range(self, angle_low, angle_high):
+    def swap_frequencies_in_angle_range(self, angle_low=None, angle_high=None, idx_low=None, idx_high=None):
         """
         Swap the 'f1' and 'f2' frequency entries in self.results for indices corresponding
         to angles between angle_low (inclusive) and angle_high (exclusive).
@@ -180,9 +180,10 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         Notes:
             Index conversion from angle values is done via val_to_index(self.angle, value).
         """
-        low_idx = val_to_index(self.angle, angle_low)
-        high_idx = val_to_index(self.angle, angle_high)
-        for i in range(low_idx, high_idx):
+        if idx_low == None or idx_high == None:
+            idx_low = val_to_index(self.angle, angle_low)
+            idx_high = val_to_index(self.angle, angle_high)
+        for i in range(idx_low, idx_high):
             self.results['f1'][i], self.results['f2'][i] = self.results['f2'][i], self.results['f1'][i]
 
     def extract_g_factors(self):
