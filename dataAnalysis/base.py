@@ -313,10 +313,6 @@ class DataSet():
                 elif operation == 'divide':
                     self.dependent_parameters[param_name+'_normalized']['values'] = (values.T / np.average(values, axis=1)).T
 
-
-
-
-
     def derive_data(self, parameters, axis=0):
         """
         Derive data from the specified parameters.
@@ -346,6 +342,132 @@ class DataSet():
                 x_vals = (self.independent_parameters['y']['values'], self.independent_parameters['x']['values'])
             data_derived = np.gradient(data, x_vals, axis=axis)
             self.dependent_parameters[param_name+'_derived']['values'] = data_derived
+ 
+    def ftt(self, parameters=None, axis = 0):
+        """
+        Compute the (one-sided) magnitude FFT for one or more dependent parameters and
+        store the results as new dependent parameters on the object.
+        This method modifies the object in-place:
+        - Adds/overwrites an independent parameter named 'freq' containing the
+            positive FFT frequency axis (in Hz, excluding the zero-frequency bin).
+        - For each requested dependent parameter `p`, adds/overwrites a dependent
+            parameter named `p_fft` whose values are the absolute value (magnitude)
+            of the FFT of `p` along the requested axis and whose paramspec is updated
+            to indicate it depends on frequency.
+        Parameters
+        ----------
+        parameters : None, str, or list of str, optional
+                The name or list of names of dependent parameters to transform. If a
+                single string is provided it will be treated as a single-element list.
+                If None or an empty list, the FFT is computed for all dependent
+                parameters present in self.dependent_parameters.
+        axis : int, optional
+                The axis along which to perform the FFT on the dependent data. The code
+                maps this axis to which independent (time) parameter to use:
+                - axis == 1 : uses independent parameter self.independent_parameters['x']
+                - axis == 0 : uses independent parameter self.independent_parameters['y']
+                Default is 0.
+        Behavior and side effects
+        -------------------------
+        - For each parameter to transform:
+            - Verifies the parameter exists in self.dependent_parameters; raises
+                ValueError if not found.
+            - Selects a time-like independent parameter (t_param) based on `axis`.
+            - Computes the sampling interval dt from t_param['values'][1] -
+                t_param['values'][0]. If t_param['paramspec'].unit == 'ns', dt is
+                converted to seconds by multiplying by 1e-9. If unit == 's', dt is used
+                as-is. (Other units are left unchanged by the current implementation.)
+            - Calls self.copy_independent_parameter(t_param['name'], 'freq') to create
+                a new independent parameter keyed as 'freq' and then sets its 'values'
+                to the positive FFT frequency bins (np.fft.fftfreq(..., d=dt) filtered to
+                freq >= 0 and excluding the zero-frequency element).
+            - Calls self.copy_dependent_parameter(param_name, param_name + '_fft')
+                to create the output dependent parameter container.
+            - Computes the FFT with np.fft.fft(data, axis=axis), slices to retain only
+                the positive-frequency bins (excluding DC), and stores the magnitude
+                (absolute value) into self.dependent_parameters[param_name + '_fft']['values'].
+            - Constructs a new ParamSpec for the FFT result. The new paramspec:
+                - has name original_name + '_fft'
+                - type 'numeric'
+                - label 'FFT of ' + original_label
+                - keeps the original unit
+                - sets depends_on to:
+                    - ['freq', self.independent_parameters['y']['paramspec'].name] when axis == 1
+                    - [self.independent_parameters['x']['paramspec'].name, 'freq'] when axis == 0
+        Return value
+        ------------
+        None
+        Exceptions
+        ----------
+        ValueError
+                If a requested parameter name is not found in self.dependent_parameters.
+        Notes and limitations
+        ---------------------
+        - The method expects the independent parameter's values to be uniformly sampled
+            (constant spacing) so that a single dt computed from the first two samples
+            is valid.
+        - The method expects t_param['values'] to have at least two elements; otherwise
+            indexing [1] will raise an IndexError.
+        - Only units 's' and 'ns' are handled explicitly for dt conversion.
+        - Behavior is defined for axis values 0 and 1 as described above; other axis
+            values are not explicitly handled by the implementation.
+        - The stored FFT values are magnitudes (abs of complex FFT output), and the
+            zero-frequency (DC) bin is removed from the stored frequency axis and data.
+        - This method uses numpy.fft for the transform.
+        """
+        
+        # Convert single string to list
+        if isinstance(parameters, str):
+            parameters = [parameters]
+        # If no parameters are specified, use all dependent parameters
+        if not parameters:
+            parameters = list(self.dependent_parameters.keys())
+
+        # Iterate over the specified parameters
+        for param_name in parameters:
+            if param_name not in self.dependent_parameters:
+                raise ValueError(f'The parameter {param_name} does not exist in the data.')
+
+            # Determine the time parameter based on the axis
+            if axis == 1:
+                t_param = self.independent_parameters['x']
+            elif axis == 0:
+                t_param = self.independent_parameters['y']
+            dt = t_param['values'][1] - t_param['values'][0]
+            t_unit = t_param['paramspec'].unit
+            if t_unit == 's':
+                pass
+            elif t_unit == 'ns':
+                dt = dt * 1e-9
+
+            # Create frequency independent parameter
+            self.copy_independent_parameter(t_param['name'], 'freq')
+            freq = np.fft.fftfreq(len(t_param['values']), d=dt)
+            idx_pos = freq >= 0
+            freq_positive = freq[idx_pos]
+            freq_positive = freq_positive[1:]
+            self.independent_parameters['freq']['values'] = freq_positive
+            self.independent_parameters['freq']['paramspec'].name = 'freq'
+            self.independent_parameters['freq']['paramspec'].label = 'freq'
+            self.independent_parameters['freq']['paramspec'].unit = 'Hz'
+            
+            # Create FFT dependent parameter
+            self.copy_dependent_parameter(param_name, param_name+'_fft')
+            data = self.dependent_parameters[param_name]['values']
+            data_fft = np.fft.fft(data, axis=axis)
+            if axis == 1:
+                depends_on = ['freq', self.independent_parameters['y']['paramspec'].name]
+                data_fft = data_fft[:,idx_pos]
+                data_fft = data_fft[:,1:]
+            elif axis == 0:
+                depends_on = [self.independent_parameters['x']['paramspec'].name, 'freq']
+                data_fft = data_fft[idx_pos]
+                data_fft = data_fft[1:]
+            self.dependent_parameters[param_name+'_fft']['values'] = abs(data_fft)
+            original_pspec = self.dependent_parameters[param_name]['paramspec']
+            new_pspec = ParamSpec(original_pspec.name+'_fft', 'numeric', 'FFT of '+original_pspec.label, original_pspec.unit, [], depends_on)
+            self.dependent_parameters[param_name+'_fft']['paramspec'] = new_pspec
+
 
     def plot_1D(self, params_to_plot=None, x_range=None, title=None, **kwargs):
         """
