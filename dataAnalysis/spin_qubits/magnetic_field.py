@@ -196,6 +196,8 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
 
         return fig, ax, (plot1, plot2)
+    
+
 
     
 
@@ -306,7 +308,7 @@ class GTensorCharacterization:
 
         cm = 1/2.54
         fig_width = 9*cm*num_cols
-        fig_height = 7*cm*num_rows
+        fig_height = 9*cm*num_rows
         fig, axes = plt.subplots(num_rows, num_cols, subplot_kw = {'projection' : 'polar'})
         fig.set_size_inches(fig_width, fig_height)
         fig.set_dpi(100)
@@ -415,6 +417,8 @@ class GTensorCharacterization:
         plt.show()    
         self.fig = fig
         self.axes = axes
+
+        return fig, axes
     
 
 
@@ -559,13 +563,6 @@ def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits
         limits = limits_dict[param_name] if param_name in limits_dict.keys() else default_limits[param_name]
         par = lmfit.Parameter(param_name, value=guess, min=limits[0], max=limits[1])
         params[param_name] = par
-
-    # params.add('gx', 0.06, min=0, max=1, vary=True)
-    # params.add('gy', 0.35, min=0, max=1, vary=True)
-    # params.add('gz', 11, min=5, max=30, vary=True)
-    # params.add('phi', 0, vary=True, min=-180, max=180)
-    # params.add('theta', 0, vary=True, min=0, max=180)
-    # params.add('zeta', 0, vary=True, min=-180, max=180)
 
     model = lmfit.Model(model_g_factor_lab_frame, independent_vars=["Bx_lab", "By_lab", "Bz_lab"])
     fit_result = model.fit(g_factor_lab, params, Bx_lab=Bx_lab, By_lab=By_lab, Bz_lab=Bz_lab, method=method)
