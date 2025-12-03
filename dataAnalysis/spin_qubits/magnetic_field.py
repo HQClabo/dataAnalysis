@@ -39,6 +39,24 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
     
     def find_resonances(self, follow_resonances=False, search_center=None, search_span=None, min_separation=1, sort_by_freq = True):
+        """
+        Find two resonance peaks for each angle in the object's frequency-angle dataset.
+        Parameters:
+            follow_resonances (bool): If True, restricts each angle's search to a sliding
+                window centered at `search_center` with width `search_span`.
+            search_center (float | None): Initial center frequency for the search window
+                (required if follow_resonances is True).
+            search_span (float | None): Width of the search window (required if follow_resonances is True).
+            min_separation (int): Minimum index separation between the two found peaks.
+            sort_by_freq (bool): If True, returned f1/f2 are sorted so f1 <= f2.
+        Behavior:
+            Uses self.mag_norm if present, otherwise self.mag, and self.freq/self.angle.
+            Finds two peak indices per angle via self.top_two_in_range and optionally
+            updates the search window each iteration when follow_resonances=True.
+            Stores results in self.results as dict with keys 'idx1','idx2','f1','f2'.
+        Raises:
+            AssertionError: If follow_resonances is True but search_center or search_span is None.
+        """
         if follow_resonances:
             assert search_center is not None and search_span is not None, "If follow_resonances is True, search_center and search_span must be provided."
             
@@ -148,16 +166,38 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         raise ValueError("No two indices satisfy the separation constraint within the given range.")
     
     def swap_frequencies_in_angle_range(self, angle_low, angle_high):
+        """
+        Swap the 'f1' and 'f2' frequency entries in self.results for indices corresponding
+        to angles between angle_low (inclusive) and angle_high (exclusive).
+
+        Parameters:
+            angle_low (float): Lower bound of the angle range.
+            angle_high (float): Upper bound of the angle range.
+
+        Modifies:
+            self.results (dict): In-place swap of entries 'f1' and 'f2' for the selected range.
+
+        Notes:
+            Index conversion from angle values is done via val_to_index(self.angle, value).
+        """
         low_idx = val_to_index(self.angle, angle_low)
         high_idx = val_to_index(self.angle, angle_high)
         for i in range(low_idx, high_idx):
             self.results['f1'][i], self.results['f2'][i] = self.results['f2'][i], self.results['f1'][i]
 
-    def extract_g_factors(self, B_out=0, **kwargs):
+    def extract_g_factors(self):
+        """Compute and store g-factors for the object's resonances.
+        Calculates B_tot = sqrt(self.B_in_mag**2 + self.B_out**2), computes g1 and g2
+        from self.results['f1'] and self.results['f2'] using compute_g_factor, stores
+        them in self.results and returns the updated results.
+        Raises:
+            AttributeError: if self.results is not present (call find_resonances first).
+        Returns:
+            dict: the updated self.results containing keys 'g1' and 'g2'.
+        """
         if not hasattr(self, "results"):
-            self.find_resonances(**kwargs)
-        self.B_out = B_out
-        B_tot = np.sqrt(self.B_in_mag**2 + B_out**2)
+            raise AttributeError("Run 'find_resonances' before extracting g-factors.")
+        B_tot = np.sqrt(self.B_in_mag**2 + self.B_out**2)
         g1 = compute_g_factor(self.results['f1'], B_tot)
         g2 = compute_g_factor(self.results['f2'], B_tot)
         self.results['g1'] = g1
@@ -198,6 +238,26 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         return fig, ax, (plot1, plot2)
     
     def get_B_cartesian_coords(self):
+        """
+        Compute and return the Cartesian components of the magnetic field and save them in a dictionary.
+
+        This method computes the in-plane magnetic field components by calling
+        build_B_vector_lab_frame with the instance attributes self.B_in_mag and self.angle
+        (uses 90 degrees as theta). It then constructs and stores a dict
+        self.B_cartesian with the following keys:
+        - 'B_in1': first in-plane component (numpy.ndarray)
+        - 'B_in2': second in-plane component (numpy.ndarray)
+        - 'B_out': out-of-plane component broadcast to match the shape of B_in1 (numpy.ndarray)
+        - 'vector': stacked 3-element numpy.ndarray of shape (3, ...) containing [B_in1, B_in2, B_out_array]
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            A 3-tuple containing (B_in1, B_in2, B_out_array), where B_in1 and B_in2 are the
+            in-plane components returned by build_B_vector_lab_frame and B_out_array is
+            self.B_out broadcast (via np.ones_like) to the same shape as B_in1.
+
+        """
         B_in1, B_in2, _ = build_B_vector_lab_frame(self.B_in_mag, 90, self.angle)
         self.B_cartesian = {
             'B_in1': B_in1,
@@ -268,27 +328,31 @@ class GTensorCharacterization:
         for dataset in self.xy_measurements:
             Bx, By, Bz = dataset.get_B_cartesian_coords()
             g_factor = dataset.results[f'g{qubit}']
-            Bx_array = np.append(Bx_array, Bx)
-            By_array = np.append(By_array, By)
-            Bz_array = np.append(Bz_array, Bz)
-            g_factor_array = np.append(g_factor_array, g_factor)
+            mask = (g_factor != None) * (~np.isnan(g_factor))
+            Bx_array = np.append(Bx_array, Bx[mask])
+            By_array = np.append(By_array, By[mask])
+            Bz_array = np.append(Bz_array, Bz[mask])
+            g_factor_array = np.append(g_factor_array, g_factor[mask])
 
         # xy sweeps
         for dataset in self.yz_measurements:
             By, Bz, Bx = dataset.get_B_cartesian_coords()
             g_factor = dataset.results[f'g{qubit}']
-            Bx_array = np.append(Bx_array, Bx)
-            By_array = np.append(By_array, By)
-            Bz_array = np.append(Bz_array, Bz)
-            g_factor_array = np.append(g_factor_array, g_factor)
+            mask = (g_factor != None) * (~np.isnan(g_factor))
+            Bx_array = np.append(Bx_array, Bx[mask])
+            By_array = np.append(By_array, By[mask])
+            Bz_array = np.append(Bz_array, Bz[mask])
+            g_factor_array = np.append(g_factor_array, g_factor[mask])
         # yz sweeps
         for dataset in self.xz_measurements:
             Bx, Bz, By = dataset.get_B_cartesian_coords()
             g_factor = dataset.results[f'g{qubit}']
-            Bx_array = np.append(Bx_array, Bx)
-            By_array = np.append(By_array, By)
-            Bz_array = np.append(Bz_array, Bz)
-            g_factor_array = np.append(g_factor_array, g_factor)
+            mask = (g_factor != None) * (~np.isnan(g_factor))
+            Bx_array = np.append(Bx_array, Bx[mask])
+            By_array = np.append(By_array, By[mask])
+            Bz_array = np.append(Bz_array, Bz[mask])
+            g_factor_array = np.append(g_factor_array, g_factor[mask])
+            
 
         #----------------------------- Fit -----------------------------
         fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, **kwargs)
@@ -301,9 +365,6 @@ class GTensorCharacterization:
         """
         Plot the result of the g tensor fit.
         """
-
-        best_fit = self.fit_result.best_fit
-
         num_cols = self.xy_is_present + self.yz_is_present + self.xz_is_present
         num_rows = max(len(self.xy_measurements), len(self.yz_measurements), len(self.xz_measurements))
 
@@ -336,21 +397,24 @@ class GTensorCharacterization:
                     ax = axes
 
                 # Get the values to be plotted
-                angles_rad = np.deg2rad(dataset.angle)
+                # angles_rad = np.deg2rad(dataset.angle)
+                # g_exp = dataset.results[f'g{self.qubit}']
+                # num_points = len(angles_rad)
+                # g_fitted = best_fit[data_start_index:data_start_index + num_points]
+                Bx, By, Bz = dataset.get_B_cartesian_coords()
                 g_exp = dataset.results[f'g{self.qubit}']
-                num_points = len(angles_rad)
-                g_fitted = best_fit[data_start_index:data_start_index + num_points]
+                g_fitted = self.model.eval(Bx_lab=Bx, By_lab=By, Bz_lab=Bz, params=self.fit_result.params)
 
                 # Plot 
-                plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
-                plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
+                plot_polar(np.deg2rad(dataset.angle), g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
+                plot_polar(np.deg2rad(dataset.angle), g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
                 ax.set_xticklabels(['+x', '', '+y', '', '-x', '', '-y', ''])
 
                 legend = ax.legend(bbox_to_anchor=(0,0))
                 legend.set_frame_on(False)
 
                 # Adjust start index for next plot
-                data_start_index += num_points
+                # data_start_index += num_points
 
         if self.yz_measurements != []:
             curr_col += 1
@@ -369,20 +433,23 @@ class GTensorCharacterization:
                     ax = axes
 
                 # Get the values to be plotted
-                angles_rad = np.deg2rad(dataset.angle)
+                # angles_rad = np.deg2rad(dataset.angle)
+                # g_exp = dataset.results[f'g{self.qubit}']
+                # num_points = len(angles_rad)
+                # g_fitted = best_fit[data_start_index:data_start_index + num_points]
+                By, Bz, Bx = dataset.get_B_cartesian_coords()
                 g_exp = dataset.results[f'g{self.qubit}']
-                num_points = len(angles_rad)
-                g_fitted = best_fit[data_start_index:data_start_index + num_points]
+                g_fitted = self.model.eval(Bx_lab=Bx, By_lab=By, Bz_lab=Bz, params=self.fit_result.params)
 
                 # Plot 
-                plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
-                plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
+                plot_polar(np.deg2rad(dataset.angle), g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
+                plot_polar(np.deg2rad(dataset.angle), g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
                 ax.set_xticklabels(['+y', '', '+z', '', '-y', '', '-z', ''])
                 legend = ax.legend(bbox_to_anchor=(0,0))
                 legend.set_frame_on(False)
 
                 # Adjust start index for next plot
-                data_start_index += num_points
+                # data_start_index += num_points
 
         if self.xz_measurements != []:
             curr_col += 1
@@ -401,20 +468,23 @@ class GTensorCharacterization:
                     ax = axes
 
                 # Get the values to be plotted
-                angles_rad = np.deg2rad(dataset.angle)
+                # angles_rad = np.deg2rad(dataset.angle)
+                # g_exp = dataset.results[f'g{self.qubit}']
+                # num_points = len(angles_rad)
+                # g_fitted = best_fit[data_start_index:data_start_index + num_points]
+                Bx, Bz, By = dataset.get_B_cartesian_coords()
                 g_exp = dataset.results[f'g{self.qubit}']
-                num_points = len(angles_rad)
-                g_fitted = best_fit[data_start_index:data_start_index + num_points]
+                g_fitted = self.model.eval(Bx_lab=Bx, By_lab=By, Bz_lab=Bz, params=self.fit_result.params)
 
                 # Plot 
-                plot_polar(angles_rad, g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
-                plot_polar(angles_rad, g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
+                plot_polar(np.deg2rad(dataset.angle), g_exp, style='data', fig=fig, ax=ax, label='exp', lw=1, plot_legend=False)
+                plot_polar(np.deg2rad(dataset.angle), g_fitted, style='line', fig=fig, ax=ax, label='fit', color='k', plot_legend=False)
                 ax.set_xticklabels(['+x', '', '+z', '', '-x', '', '-z', ''])
                 legend = ax.legend(bbox_to_anchor=(0,0))
                 legend.set_frame_on(False)
 
                 # Adjust start index for next plot
-                data_start_index += num_points
+                # data_start_index += num_points
         plt.show()    
         self.fig = fig
         self.axes = axes
