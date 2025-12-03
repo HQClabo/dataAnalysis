@@ -197,6 +197,15 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
 
         return fig, ax, (plot1, plot2)
     
+    def get_B_cartesian_coords(self):
+        B_in1, B_in2, _ = build_B_vector_lab_frame(self.B_in_mag, 90, self.angle)
+        self.B_cartesian = {
+            'B_in1': B_in1,
+            'B_in2': B_in2,
+            'B_out': self.B_out*np.ones_like(B_in1),
+            'vector': np.array([B_in1, B_in2, self.B_out*np.ones_like(B_in1)])
+        }
+        return B_in1, B_in2, self.B_out*np.ones_like(B_in1)
 
 
     
@@ -224,7 +233,7 @@ class GTensorCharacterization:
         else:
             raise ValueError("'type' must be either 'xy', 'yz' or 'xz'.")
     
-    def fit_g_tensor(self, qubit:int=1, method='leastsq', guesses_dict={}, limits_dict={}):
+    def fit_g_tensor(self, qubit:int=1, method='leastsq', guesses_dict={}, limits_dict={}, **kwargs):
         """
         Fit the g tensor using the provided in-plane sweep measurements. Such measurements must be added to the class before running this method using the method 'add_measurement'.
 
@@ -250,57 +259,49 @@ class GTensorCharacterization:
             return
         
         #----------------------------- Build data -----------------------------
-        Bx_array = []
-        By_array = []
-        Bz_array = []
-        g_factor_array = []
+        Bx_array = np.array([])
+        By_array = np.array([])
+        Bz_array = np.array([])
+        g_factor_array = np.array([])
 
         # xy sweeps
         for dataset in self.xy_measurements:
-            Bz = dataset.B_out
-            B_in_mag = dataset.B_in_mag
-            for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
-                Bx, By, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle) # The order must be consistent with the measurements
-                Bx_array.append(Bx)
-                By_array.append(By)
-                Bz_array.append(Bz)
-                g_factor_array.append(g_factor)
+            Bx, By, Bz = dataset.get_B_cartesian_coords()
+            g_factor = dataset.results[f'g{qubit}']
+            Bx_array = np.append(Bx_array, Bx)
+            By_array = np.append(By_array, By)
+            Bz_array = np.append(Bz_array, Bz)
+            g_factor_array = np.append(g_factor_array, g_factor)
+
         # xy sweeps
         for dataset in self.yz_measurements:
-            Bx = dataset.B_out
-            B_in_mag = dataset.B_in_mag
-            for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
-                By, Bz, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle)  # The order must be consistent with the measurements
-                Bx_array.append(Bx)
-                By_array.append(By)
-                Bz_array.append(Bz)
-                g_factor_array.append(g_factor)
+            By, Bz, Bx = dataset.get_B_cartesian_coords()
+            g_factor = dataset.results[f'g{qubit}']
+            Bx_array = np.append(Bx_array, Bx)
+            By_array = np.append(By_array, By)
+            Bz_array = np.append(Bz_array, Bz)
+            g_factor_array = np.append(g_factor_array, g_factor)
         # yz sweeps
         for dataset in self.xz_measurements:
-            By = dataset.B_out
-            B_in_mag = dataset.B_in_mag
-            for angle, g_factor in zip(dataset.angle, dataset.results[f'g{qubit}']):
-                Bx, Bz, _ = build_B_vector_lab_frame(B_in_mag, theta=90, phi=angle) # The order must be consistent with the measurements
-                Bx_array.append(Bx)
-                By_array.append(By)
-                Bz_array.append(Bz)
-                g_factor_array.append(g_factor)
-
-        Bx_array = np.array(Bx_array)
-        By_array = np.array(By_array)
-        Bz_array = np.array(Bz_array)
+            Bx, Bz, By = dataset.get_B_cartesian_coords()
+            g_factor = dataset.results[f'g{qubit}']
+            Bx_array = np.append(Bx_array, Bx)
+            By_array = np.append(By_array, By)
+            Bz_array = np.append(Bz_array, Bz)
+            g_factor_array = np.append(g_factor_array, g_factor)
 
         #----------------------------- Fit -----------------------------
-        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict)
+        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, **kwargs)
         self.fit_result = fit_result
         self.model = model
-
         print(fit_result.fit_report())
-        
-
         return fit_result
     
     def plot_fit_result(self, fig=None, axes=None):
+        """
+        Plot the result of the g tensor fit.
+        """
+
         best_fit = self.fit_result.best_fit
 
         num_cols = self.xy_is_present + self.yz_is_present + self.xz_is_present
