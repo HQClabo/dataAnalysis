@@ -308,7 +308,7 @@ class GTensorCharacterization:
 
         cm = 1/2.54
         fig_width = 9*cm*num_cols
-        fig_height = 9*cm*num_rows
+        fig_height = 10*cm*num_rows
         fig, axes = plt.subplots(num_rows, num_cols, subplot_kw = {'projection' : 'polar'})
         fig.set_size_inches(fig_width, fig_height)
         fig.set_dpi(100)
