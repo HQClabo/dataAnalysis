@@ -343,7 +343,7 @@ class DataSet():
             data_derived = np.gradient(data, x_vals, axis=axis)
             self.dependent_parameters[param_name+'_derived']['values'] = data_derived
  
-    def ftt(self, parameters=None, axis = 0):
+    def fft(self, parameters=None, axis = 0):
         """
         Compute the (one-sided) magnitude FFT for one or more dependent parameters and
         store the results as new dependent parameters on the object.
