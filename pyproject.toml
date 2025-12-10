@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataAnalysis"
+version = "1.0"
+authors = [
+  { name="Fabian Oppliger", email="fabianoppliger@bluewin.ch" },
+]
+description = "Python module for data analysis with fitting and plotting"
+readme = "README.md"
+requires-python = ">=3.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
