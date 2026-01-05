@@ -375,8 +375,8 @@ def coulomb_diamond_curr(x,y,z,vmin=None,vmax=None,log=False,title='',res=300,fo
         fig, ax, cb = plot_2D_clog(x,y*1e3,z*1e12,colormap='terrain',vmin=vmin,vmax=vmax)
     else:
         fig, ax, cb = plot_2D_linear(x,y*1e3,z*1e12,vmin=vmin,vmax=vmax)
-    ax.set_xlabel('$V_{\mathrm{bg}}$ (V)', fontsize=fontsize)
-    ax.set_ylabel('$V_{\mathrm{bias}}$ (mV)', fontsize=fontsize)
+    ax.set_xlabel(r'$V_{\mathrm{bg}}$ (V)', fontsize=fontsize)
+    ax.set_ylabel(r'$V_{\mathrm{bias}}$ (mV)', fontsize=fontsize)
     cb.set_label(r'$I_\mathrm{d}$ (pA)',fontsize=fontsize)
     fig.suptitle(title)
     fig.tight_layout()
@@ -388,8 +388,8 @@ def coulomb_diamond_diff(x,y,z,vmin=None,vmax=None,log=False,title='',res=300,fo
         fig, ax, cb = plot_2D_clog(x,y*1e3,diff,colormap='hot',vmin=vmin,vmax=vmax)
     else:
         fig, ax, cb = plot_2D_linear(x,y*1e3,diff,colormap='hot',vmin=vmin,vmax=vmax)
-    ax.set_xlabel('$V_{\mathrm{bg}}$ (V)',fontsize=fontsize)
-    ax.set_ylabel('$V_{\mathrm{bias}}$ (mV)',fontsize=fontsize)
-    cb.set_label('$\partial I_\mathrm{d} / \partial V_{\mathrm{bias}}$ (S)',fontsize=fontsize)
+    ax.set_xlabel(r'$V_{\mathrm{bg}}$ (V)',fontsize=fontsize)
+    ax.set_ylabel(r'$V_{\mathrm{bias}}$ (mV)',fontsize=fontsize)
+    cb.set_label(r'$\partial I_\mathrm{d} / \partial V_{\mathrm{bias}}$ (S)',fontsize=fontsize)
     fig.suptitle(title)
     fig.tight_layout()
