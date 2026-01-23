@@ -65,7 +65,7 @@ class ChargeSensorCalibration(DataSet):
 
         plt.plot(self.xdata, self.model.eval(params=self.fit_result.params, Vg=self.xdata), '-', color='red')
         plt.scatter(self.V_max_deriv, self.model.eval(params=self.fit_result.params, Vg=self.V_max_deriv), color='red')
-        plt.text(self.V0-self.Gamma/6, self.A*2/3, f"V = {self.V_max_deriv:.5f}", color='red')
+        plt.text(self.V0-self.Gamma/6, self.A*2/3, f"V = {self.V_max_deriv:.5f} V", color='red')
 
         return self.V_max_deriv
 
