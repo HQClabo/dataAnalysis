@@ -91,7 +91,10 @@ class DataSet():
         interdeps = dataset.description.interdeps.dependencies
     
         paramspecs = dataset.paramspecs
-        dependent_parameters = dataset.description.interdeps.top_level_parameters
+        try:
+            dependent_parameters = dataset.description.interdeps.top_level_parameters
+        except:
+            dependent_parameters = dataset.description.interdeps.non_dependencies
         # dependent_parameters = [paramspecs[param.name] for param in dataset.description.interdeps.top_level_parameters]
     
         n_independent_parameters = 0
@@ -755,7 +758,10 @@ class ConcatenatedDataSet(DataSet):
         df = dataset.to_pandas_dataframe()
         interdeps = dataset.description.interdeps.dependencies
         paramspecs = dataset.paramspecs
-        dependent_parameters = dataset.description.interdeps.top_level_parameters
+        try:
+            dependent_parameters = dataset.description.interdeps.top_level_parameters
+        except:
+            dependent_parameters = dataset.description.interdeps.non_dependencies
         n_independent_parameters = 0
         for param in dependent_parameters:
             independent_parameters = interdeps[param]
@@ -777,8 +783,10 @@ class ConcatenatedDataSet(DataSet):
             df = dataset.to_pandas_dataframe()
             interdeps = dataset.description.interdeps.dependencies
             paramspecs = dataset.paramspecs
-            dependent_parameters = dataset.description.interdeps.top_level_parameters
-
+            try:
+                dependent_parameters = dataset.description.interdeps.top_level_parameters
+            except:
+                dependent_parameters = dataset.description.interdeps.non_dependencies
             for i, param in enumerate(dependent_parameters):
                 self.dependent_parameters[f'param_{i}']['values'] = np.vstack((self.dependent_parameters[f'param_{i}']['values'], df[param.name].values))
 
