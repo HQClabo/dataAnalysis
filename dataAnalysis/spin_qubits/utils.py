@@ -8,7 +8,7 @@ def charge_sensor_peak_model(Vg, A, V0, Gamma):
     return A * (Gamma/2)**2 / ( (Vg - V0)**2 + (Gamma/2)**2)
 
 class ChargeSensorCalibration(DataSet):
-    def __init__(self, exp, run_id):
+    def __init__(self, exp, run_id=None):
         super().__init__(exp=exp, run_id=run_id)
         self.xdata = self.independent_parameters['x']['values']
         self.ydata = self.dependent_parameters['param_4']['values']
