@@ -37,8 +37,42 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
     def normalize_data_from_average(self, params_to_normalize = None, axis=0, operation="subtract"):
         super().normalize_data_from_average(params_to_normalize, axis, operation)
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
+
+    def find_single_resonance(self, search_range=None):
+        if search_range:
+            low_freq = search_range[0]
+            high_freq = search_range[1]
+            low_idx = val_to_index(self.freq, low_freq)
+            high_idx = val_to_index(self.freq, high_freq)
+        else:
+            low_idx = 0
+            high_idx = -1
+
+        if hasattr(self, 'mag_norm'):
+                data = self.mag_norm
+        else:
+            data = self.mag
+        
+        num_angles = len(self.angle)
+        idx_array = np.ones(num_angles, dtype=int)
+        f_array = np.zeros_like(idx_array)
+
+        for angle_index, angle in enumerate(self.angle):
+            # Take the linecut for the current angle value
+            linecut = data[:, angle_index]
+            f_array[angle_index] = np.max(linecut)
+            idx_array[angle_index] = np.argmax(linecut)
+        
+        if not hasattr(self, "results"):
+            self.results = {}
+        for qubit_idx in range(1, 10): # 10 just a large number, will look for 'f1', 'f2', etc and the first label not present yet will be used
+            if f'f{qubit_idx}' not in self.results:
+                self.results[f'f{qubit_idx}'] = f_array
+                self.results[f'idx{qubit_idx}'] = idx_array
+
+
     
-    def find_resonances(self, follow_resonances=False, search_center=None, search_span=None, min_separation=1, sort_by_freq = True):
+    def find_two_resonances(self, follow_resonances=False, search_center=None, search_span=None, search_range=None, min_separation=1, sort_by_freq = True):
         """
         Find two resonance peaks for each angle in the object's frequency-angle dataset.
         Parameters:
@@ -63,6 +97,11 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             # Convert range into indices
             low_freq = search_center - search_span/2
             high_freq = search_center + search_span/2
+            low_idx = val_to_index(self.freq, low_freq)
+            high_idx = val_to_index(self.freq, high_freq)
+        elif search_range:
+            low_freq = search_range[0]
+            high_freq = search_range[1]
             low_idx = val_to_index(self.freq, low_freq)
             high_idx = val_to_index(self.freq, high_freq)
         else:
@@ -199,11 +238,13 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         if not hasattr(self, "results"):
             raise AttributeError("Run 'find_resonances' before extracting g-factors.")
         B_tot = np.sqrt(self.B_in_mag**2 + self.B_out**2)
-        g1 = compute_g_factor(self.results['f1'], B_tot)
-        g2 = compute_g_factor(self.results['f2'], B_tot)
-        self.results['g1'] = g1
-        self.results['g2'] = g2
 
+        for qubit_idx in range(1, 10): # 10 just a large number, will look for 'f1', 'f2', etc
+            if f'f{qubit_idx}' in self.results:
+                f = self.results[f'f{qubit_idx}']
+                g = compute_g_factor(f, B_tot)
+                self.results[f'g{qubit_idx}'] = g
+                
         return self.results
     
     def plot_g_factors(self, angle_labels=None, fig=None, ax=None):
