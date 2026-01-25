@@ -69,6 +69,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             if f'f{qubit_idx}' not in self.results:
                 self.results[f'f{qubit_idx}'] = f_array
                 self.results[f'idx{qubit_idx}'] = idx_array
+                return
 
 
     
@@ -244,7 +245,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
                 f = self.results[f'f{qubit_idx}']
                 g = compute_g_factor(f, B_tot)
                 self.results[f'g{qubit_idx}'] = g
-                
+
         return self.results
     
     def plot_g_factors(self, angle_labels=None, fig=None, ax=None):
