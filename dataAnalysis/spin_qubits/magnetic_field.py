@@ -60,7 +60,8 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         for angle_index, angle in enumerate(self.angle):
             # Take the linecut for the current angle value
             linecut = data[:, angle_index]
-            f_array[angle_index] = np.max(linecut)
+            idx_max = np.argmax(linecut)
+            f_array[angle_index] = self.freq[idx_max]
             idx_array[angle_index] = np.argmax(linecut)
         
         if not hasattr(self, "results"):
