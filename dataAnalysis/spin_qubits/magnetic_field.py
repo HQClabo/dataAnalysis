@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import constants
 import lmfit
+import scipy
 from dataAnalysis.base import DataSet, ConcatenatedDataSet, val_to_index
 
 
@@ -48,6 +49,54 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         super().normalize_data_from_average(params_to_normalize, axis, operation)
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
 
+    def find_peaks_scipy(self, peaks_to_save, search_range=None, do_plot=True, **scipy_kwargs):
+        # Adapt search range
+        if search_range:
+            low_freq = search_range[0]
+            high_freq = search_range[1]
+            low_idx = val_to_index(self.freq, low_freq)
+            high_idx = val_to_index(self.freq, high_freq)
+        else:
+            low_idx = 0
+            high_idx = -1
+        # Find data to use
+        if hasattr(self, 'mag_fft'):
+            data = self.mag_fft
+        elif hasattr(self, 'mag_norm'):
+            data = self.mag_norm
+        else:
+            data = self.mag
+
+        # Initialize results dict
+        num_freqs = len(peaks_to_save)
+        self.results = {}
+        for freq_idx in range(1, num_freqs+1):
+            self.results[f'f{freq_idx}'] = np.zeros_like(self.angle, dtype=np.float32)
+
+        # Start plotting data
+        if do_plot:
+            if hasattr(self, 'mag_fft'):
+                self.plot_2D('param_0_fft')
+            elif hasattr(self, 'mag_norm'):
+                self.plot_2D('param_0_normalized')
+            else:
+                self.plot_2D('param_0')
+            colors = ['red', 'green', 'blue', 'yellow']
+
+        # Loop over angles
+        for angle_idx, _ in enumerate(self.angle):
+            peak_idxs, _ = scipy.signal.find_peaks(data[low_idx:high_idx, angle_idx], **scipy_kwargs)
+            peak_freqs = self.freq[peak_idxs]
+            # Write frequencies in results dictionary
+            for freq_idx, peak_to_save_idx in zip(range(1, num_freqs+1), peaks_to_save):
+                try:
+                    self.results[f'f{freq_idx}'][angle_idx] = peak_freqs[peak_to_save_idx]
+                except:
+                    self.results[f'f{freq_idx}'][angle_idx] = None
+            # Plot found frequencies
+            for f, color in zip(peak_freqs[:3], colors[:3]):
+                plt.scatter(self.angle[angle_idx], f, color=color, alpha=0.4, lw=0.1)
+
     def find_single_resonance(self, search_range=None):
         if search_range:
             low_freq = search_range[0]
@@ -84,8 +133,6 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
                 self.results[f'idx{qubit_idx}'] = idx_array
                 return
 
-
-    
     def find_two_resonances(self, follow_resonances=False, search_center=None, search_span=None, search_range=None, min_separation=1, sort_by_freq = True):
         """
         Find two resonance peaks for each angle in the object's frequency-angle dataset.
@@ -240,6 +287,22 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             idx_high = val_to_index(self.angle, angle_high)
         for i in range(idx_low, idx_high):
             self.results['f1'][i], self.results['f2'][i] = self.results['f2'][i], self.results['f1'][i]
+
+    def plot_resonances(self, **kwargs):
+        if hasattr(self, 'mag_fft'):
+            self.plot_2D('param_0_fft')
+        elif hasattr(self, 'mag_norm'):
+            self.plot_2D('param_0_normalized')
+        else:
+            self.plot_2D('param_0')
+
+        colors = ['red', 'yellow', 'green', 'blue']
+        for qubit_idx, color in zip(range(1, 5), colors):
+            try:
+                plt.scatter(self.angle, self.results[f'f{qubit_idx}'], lw=1, alpha=0.3, color=color)
+            except:
+                return
+
 
     def extract_g_factors(self):
         """Compute and store g-factors for the object's resonances.
