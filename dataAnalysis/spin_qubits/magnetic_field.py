@@ -50,6 +50,40 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
 
     def find_peaks_scipy(self, peaks_to_save, search_range=None, do_plot=True, **scipy_kwargs):
+        """
+        Find peaks in frequency data using scipy's find_peaks function and store results.
+        This method identifies peaks in the magnitude spectrum across all angle measurements,
+        optionally within a specified frequency range. Results are stored in a dictionary
+        with keys formatted as 'f1', 'f2', etc., containing the peak frequencies for each angle.
+        Parameters
+        ----------
+        peaks_to_save : list of int
+            Indices of peaks to extract and store. For example, [0, 1, 2] would save the
+            1st, 2nd, and 3rd peaks found at each angle.
+        search_range : tuple of float, optional
+            Frequency range (low_freq, high_freq) to search for peaks. If None, searches
+            the entire frequency range. Default is None.
+        do_plot : bool, optional
+            Whether to plot the 2D magnitude data and scatter plot the found peaks.
+            Default is True.
+        **scipy_kwargs : dict
+            Additional keyword arguments to pass to scipy.signal.find_peaks().
+            Common options include 'height', 'distance', 'prominence', 'width', etc.
+        Returns
+        -------
+        None
+            Results are stored in self.results dictionary with keys 'f1', 'f2', etc.
+            Each key maps to a numpy array of peak frequencies for each angle.
+            Values are None if a requested peak index was not found at that angle.
+        Notes
+        -----
+        The method prioritizes data sources in the following order:
+        1. self.mag_fft (FFT magnitude)
+        2. self.mag_norm (normalized magnitude)
+        3. self.mag (raw magnitude)
+        Found peaks are visualized as scatter points in red, green, and blue colors
+        (up to 3 peaks per angle) when do_plot is True.
+        """
         # Adapt search range
         if search_range:
             low_freq = search_range[0]
@@ -299,7 +333,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         colors = ['red', 'yellow', 'green', 'blue']
         for qubit_idx, color in zip(range(1, 5), colors):
             try:
-                plt.scatter(self.angle, self.results[f'f{qubit_idx}'], lw=1, alpha=0.3, color=color)
+                plt.scatter(self.angle, self.results[f'f{qubit_idx}'], lw=1, alpha=0.3, color=color, **kwargs)
             except:
                 return
 
