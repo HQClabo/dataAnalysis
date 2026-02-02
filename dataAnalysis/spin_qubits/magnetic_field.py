@@ -9,7 +9,7 @@ from dataAnalysis.base import DataSet, ConcatenatedDataSet, val_to_index
 # CLASSES
 #####################################################################################################
 class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
-    def __init__(self, exp, run_id:int|list, B_in_mag, B_out=0, angle_values=None, angle_label="In_plane_angle", angle_unit="Deg"):
+    def __init__(self, exp, run_id:int|list, B_in_mag, B_out=0, angle_values=None, angle_label="In_plane_angle", angle_unit="Deg", mode='from_driven_spectroscopy'):
         """
         Args:
             exp: Experiment
@@ -19,6 +19,8 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             angle_values(optional, default None): Swept values of the in-plane angle.
             angle_label: Label to use for the angle variable in plots.
             angle_unit: Unit of the angles.
+            mode: either 'from_driven_spectroscopy' if the antiparallel spins are excited with a gate drive tone, or 'from_free_time_evolution' if they are excited by fast ramps
+                  inducing ST- and/or ST0 oscillations. In the latter, this class computes the numerical fft first to find the excitation frequencies.
 
         """
         if isinstance(run_id, int):
@@ -28,7 +30,15 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
                 num_in_plane_angles = run_id[1] - run_id[0] + 1
                 angle_values = np.linspace(0, 360, num_in_plane_angles)
             ConcatenatedDataSet.__init__(self, exp, run_id, angle_values, angle_label, angle_unit)
-        self.freq = self.independent_parameters['y']['values']
+        if mode == 'from_driven_spectroscopy':
+            self.freq = self.independent_parameters['y']['values']
+        elif mode == 'from_free_time_evolution':
+            self.evol_time = self.independent_parameters['y']['values']
+            self.fft(axis = 0)
+            self.freq = self.independent_parameters['freq']['values']
+            self.mag_fft = self.dependent_parameters['param_0_fft']['values']
+        else:
+             raise ValueError("Choose a supported mode: either 'from_driven_spectroscopy' or 'from_free_time_evolution'!")
         self.angle = self.independent_parameters['x']['values']
         self.mag = self.dependent_parameters['param_0']['values']
         self.B_in_mag = B_in_mag
@@ -48,19 +58,21 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             low_idx = 0
             high_idx = -1
 
-        if hasattr(self, 'mag_norm'):
-                data = self.mag_norm
+        if hasattr(self, 'mag_fft'):
+            data = self.mag_fft
+        elif hasattr(self, 'mag_norm'):
+            data = self.mag_norm
         else:
             data = self.mag
         
         num_angles = len(self.angle)
         idx_array = np.ones(num_angles, dtype=int)
-        f_array = np.zeros_like(idx_array)
+        f_array = np.zeros_like(idx_array, dtype=np.float64)
 
         for angle_index, angle in enumerate(self.angle):
             # Take the linecut for the current angle value
             linecut = data[:, angle_index]
-            idx_max = np.argmax(linecut[low_idx:high_idx])
+            idx_max = np.argmax(linecut[low_idx:high_idx]) + low_idx
             f_array[angle_index] = self.freq[idx_max]
             idx_array[angle_index] = idx_max
         
@@ -110,8 +122,10 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             low_idx = 0
             high_idx = -1
 
-        if hasattr(self, 'mag_norm'):
-                data = self.mag_norm
+        if hasattr(self, 'mag_fft'):
+            data = self.mag_fft
+        elif hasattr(self, 'mag_norm'):
+            data = self.mag_norm
         else:
             data = self.mag
 
@@ -249,7 +263,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
 
         return self.results
     
-    def plot_g_factors(self, angle_labels=None, fig=None, ax=None):
+    def plot_g_factors(self, angle_labels=None, fig=None, ax=None, style='data', **kwargs):
         """
         Plot the calculated g factor in the plane.
 
@@ -269,8 +283,8 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         elif ax is None:   
             ax = fig.add_subplot(projection='polar')
 
-        _, _, plot1 = plot_polar(np.deg2rad(angle), g1, style='data', fig=fig, ax=ax, label='Q1', lw=1)
-        _, _, plot2 = plot_polar(np.deg2rad(angle), g2, style='data', fig=fig, ax=ax, label='Q2', lw=1)
+        _, _, plot1 = plot_polar(np.deg2rad(angle), g1, style=style, fig=fig, ax=ax, label='Q1', **kwargs)
+        _, _, plot2 = plot_polar(np.deg2rad(angle), g2, style=style, fig=fig, ax=ax, label='Q2', **kwargs)
 
         if angle_labels == 'xy':
             ax.set_xticklabels(['+x', '', '+y', '', '-x', '', '-y', ''])
