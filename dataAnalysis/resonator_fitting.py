@@ -70,7 +70,7 @@ def get_frequency_scaling(freq_unit='Hz'):
     else:
         raise ValueError(f"Unsupported frequency unit: {freq_unit}. Must be one of 'GHz', 'MHz', 'kHz', 'Hz'.")
 
-def get_single_photon_limit(fitresults, freq_unit='Hz', unit='dBm'):
+def get_single_photon_limit(fitresults, port_type='notch', freq_unit='Hz', unit='dBm'):
     '''
     returns the amout of power in units of W necessary
     to maintain one photon on average in the cavity
@@ -79,23 +79,38 @@ def get_single_photon_limit(fitresults, freq_unit='Hz', unit='dBm'):
     power_scaling = get_frequency_scaling(freq_unit)**2
     fr = fitresults['fr']
     k_c = 2*np.pi*fitresults['kappa_c']
-    k_i = 2*np.pi*(fitresults['kappa']-fitresults['kappa_c'])
-    power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*(k_c+k_i)**2)) * power_scaling
+    k = 2*np.pi*fitresults['kappa']
+    power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*k**2)) * power_scaling
+    if port_type == 'notch':
+        # for notch resonators, the input power is split into two paths, so we need to multiply the single photon limit by 2
+        power_watts = power_watts * 2
     if unit=='dBm':
         return 10*np.log10(power_watts*1000.)
     elif unit=='watt':
-        return power_watts
+        return unit=='watt'
         
-def get_photons_in_resonator(power, fitresults, freq_unit='Hz', unit='dBm'):
-		'''
-		returns the average number of photons
-		for a given power (defaul unit is 'dbm')
-		unit can be 'dBm' or 'watt'
-		'''
-		if fitresults!={}:
-			if unit=='dBm':
-				power = 10**(power/10.) /1000.
-			return power / get_single_photon_limit(fitresults, freq_unit=freq_unit, unit='watt')
+def get_photons_in_resonator(power, fitresults, port_type='notch', freq_unit='Hz', unit='dBm'):
+    '''
+    returns the average number of photons
+    for a given power (defaul unit is 'dbm')
+    unit can be 'dBm' or 'watt'
+    '''
+    if fitresults={}:
+        raise ValueError("Fit results are empty. Please provide valid fit results to calculate the number of photons in the resonator.")
+    if unit=='dBm':
+        power_watts = 10**(power/10.) /1000.
+    elif unit=='watt':
+        power_watts = power
+    freq_scaling = get_frequency_scaling(freq_unit)
+    fr = fitresults['fr']
+    k_c = 2*np.pi*fitresults['kappa_c']
+    k = 2*np.pi*fitresults['kappa']
+    nph = power_watts/const.h*fr * 4.*k_c/k**2 / freq_scaling**2
+    if port_type=='notch':
+        # for notch resonators, the input power is split into two paths, so we need to divide the number of photons by 2
+        nph = nph / 2
+    return nph
+    # return power / get_single_photon_limit(fitresults, port_type=port_type, freq_unit=freq_unit, unit='watt')
         
 def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz', plot_initial_guesses=False):
     alpha = 0.7
@@ -219,9 +234,12 @@ def _fit_frequency_sweep_resonator_tools(
     fit_report["Ql_err"] = port.fitresults["Ql_err"]
     if port_type == 'notch':
         fit_report["phi0"] = port.fitresults["phi0"]
-    fit_report["Nph"] = port.get_photons_in_resonator(power,unit='dBm')
-    fit_report["single_photon_W"] = port.get_single_photon_limit(unit='watt')
-    fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm')
+        power_scaling = 2 # for notch resonators, the input power is split into two paths, so we need to multiply the power by 2 to get the power in the resonator
+    elif port_type == 'reflection':
+        power_scaling = 1
+    fit_report["Nph"] = port.get_photons_in_resonator(power,unit='dBm') / power_scaling
+    fit_report["single_photon_W"] = port.get_single_photon_limit(unit='watt') * power_scaling
+    fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm') * power_scaling
     fit_report["fr"] = port.fitresults["fr"]
     fit_report['fitresults'] = port.fitresults
     fit_report['z_data_sim'] = port.z_data_sim
@@ -304,9 +322,9 @@ def _fit_frequency_sweep_lmfit(
     fit_report['delay'] = par['delay'].value
     if port_type == 'notch':
         fit_report['phi0'] = par['phi0'].value
-    fit_report["Nph"] = get_photons_in_resonator(power, result.best_values ,freq_unit=freq_unit ,unit='dBm')
-    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='watt')
-    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='dBm')
+    fit_report["Nph"] = get_photons_in_resonator(power, result.best_values, port_type=port_type, freq_unit=freq_unit ,unit='dBm')
+    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit , unit='watt')
+    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit , unit='dBm')
     fit_report['fitresults'] = result
     
     if plot:
@@ -452,9 +470,12 @@ def _fit_power_sweep_resonator_tools(
         fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
         if port_type == 'notch':
             fit_report["phi0"] = port.fitresults["phi0"]
-        fit_report["Nph"][k] = port.get_photons_in_resonator(pwr - attenuation,unit='dBm')
-        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
-        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
+            power_scaling = 2 # for notch resonators, the input power is split into two paths, so we need to multiply the power by 2 to get the power in the resonator
+        elif port_type == 'reflection':
+            power_scaling = 1
+        fit_report["Nph"][k] = port.get_photons_in_resonator(pwr - attenuation,unit='dBm') / power_scaling
+        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt') * power_scaling
+        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm') * power_scaling
         fit_report["fr"][k] = port.fitresults["fr"]
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
@@ -542,9 +563,9 @@ def _fit_power_sweep_lmfit(
         fit_report['delay'][k] = par['delay'].value
         if port_type == 'notch':
             fit_report['phi0'][k] = par['phi0'].value
-        fit_report["Nph"][k] = get_photons_in_resonator(pwr - attenuation, result.best_values, freq_unit=freq_unit ,unit='dBm')
-        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='watt')
-        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='dBm')
+        fit_report["Nph"][k] = get_photons_in_resonator(pwr - attenuation, result.best_values, port_type=port_type, freq_unit=freq_unit ,unit='dBm')
+        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='watt')
+        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='dBm')
         fit_report['fitresults'][k] = result
         
         if plot:
@@ -696,9 +717,12 @@ def _fit_field_sweep_resonator_tools(
         fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
         if port_type == 'notch':
             fit_report["phi0"] = port.fitresults["phi0"]
-        fit_report["Nph"][k] = port.get_photons_in_resonator(power,unit='dBm')
-        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
-        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
+            power_scaling = 2 # for notch resonators, the input power is split into two paths, so we need to multiply the power by 2 to get the power in the resonator
+        elif port_type == 'reflection':
+            power_scaling = 1
+        fit_report["Nph"][k] = port.get_photons_in_resonator(power,unit='dBm') / power_scaling
+        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt') * power_scaling
+        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm') * power_scaling
         fit_report["fr"][k] = port.fitresults["fr"]
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
@@ -784,9 +808,9 @@ def _fit_field_sweep_lmfit(
         fit_report['a'][k] = par['a'].value
         fit_report['alpha'][k] = par['alpha'].value
         fit_report['delay'][k] = par['delay'].value
-        fit_report["Nph"][k] = get_photons_in_resonator(power, result.best_values, freq_unit='Hz' ,unit='dBm')
-        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='watt')
-        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='dBm')
+        fit_report["Nph"][k] = get_photons_in_resonator(power, result.best_values, port_type=port_type, freq_unit='Hz' ,unit='dBm')
+        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='watt')
+        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='dBm')
         fit_report['fitresults'][k] = result
         
         if plot:
