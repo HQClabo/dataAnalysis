@@ -95,7 +95,7 @@ def get_photons_in_resonator(power, fitresults, port_type='notch', freq_unit='Hz
     for a given power (defaul unit is 'dbm')
     unit can be 'dBm' or 'watt'
     '''
-    if fitresults={}:
+    if fitresults=={}:
         raise ValueError("Fit results are empty. Please provide valid fit results to calculate the number of photons in the resonator.")
     if unit=='dBm':
         power_watts = 10**(power/10.) /1000.
