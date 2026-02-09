@@ -991,12 +991,12 @@ def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',*
     else:
         ax.semilogx()
     kappa_scaling = get_frequency_scaling(freq_unit)/1e6
-    ax.errorbar(fit['Nph'],fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
-    ax.errorbar(fit['Nph'],fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
-    ax.errorbar(fit['Nph'],fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label=r'$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label=r'$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label=r'$\kappa$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('photon number')
-    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.set_ylabel(r'$\kappa/2\pi$ (MHz)')
     ax.grid()
     fig.suptitle(label)
     fig.tight_layout()
@@ -1088,12 +1088,12 @@ def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,freq_unit=
     if log_y:
         ax.semilogy()
     kappa_scaling = get_frequency_scaling(freq_unit)/1e6
-    ax.errorbar(field*1e3,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
-    ax.errorbar(field*1e3,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
-    ax.errorbar(field*1e3,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label=r'$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label=r'$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label=r'$\kappa$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('Magnetic field (mT)')
-    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.set_ylabel(r'$\kappa/2\pi$ (MHz)')
     ax.grid()
     fig.suptitle(label)
     fig.tight_layout()
@@ -1185,12 +1185,12 @@ def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',
         ax.semilogy()
     fr_scaling = get_frequency_scaling(freq_unit)/1e9
     kappa_scaling = get_frequency_scaling(freq_unit)/1e6
-    ax.errorbar(frs*fr_scaling,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
-    ax.errorbar(frs*fr_scaling,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
-    ax.errorbar(frs*fr_scaling,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label=r'$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label=r'$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label=r'$\kappa$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('Magnetic field (mT)')
-    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.set_ylabel(r'$\kappa/2\pi$ (MHz)')
     ax.grid()
     fig.suptitle(label)
     fig.tight_layout()
@@ -1438,7 +1438,7 @@ class Parameters:
         param.nu = nu
 
     def description(param):
-        return (f'Parameters \nQi = {param.Qi}\nQc = {param.Qc}\nQl = {param.Ql}\nQi = {param.Qi}\nerr_Qc = {param.err_Qc}\nerr_Ql = {param.err_Ql}\nfr_res = {param.fr_res}\npower_at = {param.power_at}\nnu = {param.nu}')
+        return (rf'Parameters \nQi = {param.Qi}\nQc = {param.Qc}\nQl = {param.Ql}\nQi = {param.Qi}\nerr_Qc = {param.err_Qc}\nerr_Ql = {param.err_Ql}\nfr_res = {param.fr_res}\npower_at = {param.power_at}\nnu = {param.nu}')
 
 def fit_function_Pscan_notch(freq,cData,power,fr_in,fr_out,att=80,plot_var=False,err_threshold=0.2):
     port1 = circuit.notch_port()
