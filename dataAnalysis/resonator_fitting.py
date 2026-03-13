@@ -18,16 +18,275 @@ import dataAnalysis.plotting_functions as myplt
 #%% functions for resonator fitting
 
 def S21_resonator_notch(fdrive, fr, kappa, kappa_c, a, alpha, delay, phi0):
-        delta_r = fdrive - fr
-        S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - 1j/2*(kappa))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S21 * environment
+    """
+    Calculates the complex transmission coefficient S21 for a resonator in a notch configuration.
+
+    Parameters:
+        fdrive (float or np.ndarray): The drive frequency or array of frequencies (Hz).
+        fr (float): Resonator frequency (Hz).
+        kappa (float): Total linewidth (Hz).
+        kappa_c (float): Coupling linewidth (Hz).
+        a (float): Amplitude scaling factor for the environment.
+        alpha (float): Additional phase offset for the environment (radians).
+        delay (float): Cable or system delay (seconds).
+        phi0 (float): Coupling phase offset (radians).
+
+    Returns:
+        complex or np.ndarray: The calculated S21 transmission coefficient at the given drive frequency/frequencies.
+    """
+    delta_r = fdrive - fr
+    S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - 1j/2*(kappa))
+    environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+    return S21 * environment
 
 def S11_resonator_reflection(fdrive, fr, kappa, kappa_c, a, alpha, delay):
+    """
+    Calculates the complex transmission coefficient S11 for a resonator in a reflection configuration.
+
+    Parameters:
+        fdrive (float or np.ndarray): The drive frequency or array of frequencies (Hz).
+        fr (float): Resonator frequency (Hz).
+        kappa (float): Total linewidth (Hz).
+        kappa_c (float): Coupling linewidth (Hz).
+        a (float): Amplitude scaling factor for the environment.
+        alpha (float): Additional phase offset for the environment (radians).
+        delay (float): Cable or system delay (seconds).
+
+    Returns:
+        complex or np.ndarray: The calculated S21 transmission coefficient at the given drive frequency/frequencies.
+    """
     delta_r = fdrive - fr
     S11 = 2*kappa_c / (kappa + 2*1j*delta_r) - 1
     environment = a * np.exp(1j * (alpha - 2*np.pi*fdrive*delay))
     return S11 * environment
+
+def S21_resonator_notch_nonlinear(
+    fdrive, fr, kappa, kappa_c, a, alpha, delay, phi0, kerr, power,
+    port_type='notch', freq_unit='Hz', power_unit='dBm'
+):
+    """
+    Calculate the S21 transmission response of a nonlinear (Kerr) resonator in a notch configuration.
+
+    This function models the transmission (S21) of a resonator whose resonance frequency shifts with photon number
+    due to the Kerr nonlinearity. The photon number is calculated self-consistently for each drive frequency and power,
+    and the resulting frequency shift is included in the response.
+
+    Works for an array of fdrive, but only for a single value of power.
+
+    Parameters
+    ----------
+    fdrive : float or ndarray
+        Drive frequency or array of frequencies (in units specified by freq_unit).
+    fr : float
+        Bare resonance frequency of the resonator (same units as fdrive).
+    kappa : float
+        Total linewidth (decay rate) of the resonator (same units as fdrive).
+    kappa_c : float
+        Coupling linewidth (external coupling rate) (same units as fdrive).
+    a : float
+        Amplitude scaling factor for the environment/background.
+    alpha : float
+        Phase offset for the environment/background.
+    delay : float
+        Cable delay (in seconds).
+    phi0 : float
+        Additional phase parameter for the notch response.
+    kerr : float
+        Kerr nonlinearity coefficient (same units as fdrive).
+    power : float
+        Input power at the resonator (in units specified by power_unit).
+    port_type : str, optional
+        Type of resonator port, 'notch' or 'reflection'. Default is 'notch'.
+    freq_unit : str, optional
+        Frequency unit for all frequency-like parameters. Default is 'Hz'.
+    power_unit : str, optional
+        Power unit for the input power. Can be 'dBm' or 'watt'. Default is 'dBm'.
+
+    Returns
+    -------
+    S21 : complex or ndarray
+        The complex S21 transmission response of the nonlinear resonator at each drive frequency.
+    """
+    delta_r = fdrive - fr
+    nph = _get_photon_number_nonlinear(
+        fdrive, fr, kappa, kappa_c, kerr, power,
+        port_type=port_type, freq_unit=freq_unit, power_unit=power_unit
+    )
+    S21 = (delta_r - kerr*nph - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - kerr*nph - 1j/2*(kappa))
+    environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+    return S21 * environment
+
+def S11_resonator_reflection_nonlinear(
+    fdrive, fr, kappa, kappa_c, a, alpha, delay, kerr, power,
+    port_type='notch', freq_unit='Hz', power_unit='dBm'
+):
+    """
+    Calculate the S11 reflection response of a nonlinear (Kerr) resonator in a reflection configuration.
+
+    This function models the reflection (S11) of a resonator whose resonance frequency shifts with photon number
+    due to the Kerr nonlinearity. The photon number is calculated self-consistently for each drive frequency and power,
+    and the resulting frequency shift is included in the response.
+
+    Works for an array of fdrive, but only for a single value of power.
+
+    Parameters
+    ----------
+    fdrive : float or ndarray
+        Drive frequency or array of frequencies (in units specified by freq_unit).
+    fr : float
+        Bare resonance frequency of the resonator (same units as fdrive).
+    kappa : float
+        Total linewidth (decay rate) of the resonator (same units as fdrive).
+    kappa_c : float
+        Coupling linewidth (external coupling rate) (same units as fdrive).
+    a : float
+        Amplitude scaling factor for the environment/background.
+    alpha : float
+        Phase offset for the environment/background.
+    delay : float
+        Cable delay (in seconds).
+    kerr : float
+        Kerr nonlinearity coefficient (same units as fdrive).
+    power : float
+        Input power at the resonator (in units specified by power_unit).
+    port_type : str, optional
+        Type of resonator port, 'notch' or 'reflection'. Default is 'notch'.
+    freq_unit : str, optional
+        Frequency unit for all frequency-like parameters. Default is 'Hz'.
+    power_unit : str, optional
+        Power unit for the input power. Can be 'dBm' or 'watt'. Default is 'dBm'.
+
+    Returns
+    -------
+    S11 : complex or ndarray
+        The complex S11 reflection response of the nonlinear resonator at each drive frequency.
+    """
+    delta_r = fdrive - fr
+    nph = _get_photon_number_nonlinear(
+        fdrive, fr, kappa, kappa_c, kerr, power,
+        port_type=port_type, freq_unit=freq_unit, power_unit=power_unit
+    )
+    S11 = 2*kappa_c / (kappa + 2*1j*(delta_r - kerr*nph)) - 1
+    environment = a * np.exp(1j * (alpha - 2*np.pi*fdrive*delay))
+    return S11 * environment
+
+def _get_photon_number_nonlinear(fdrive, fr, kappa, kappa_c, kerr, power, port_type='notch', freq_unit='Hz', power_unit='dBm'):
+    """
+    Calculate the average number of photons in a nonlinear resonator, accounting for Kerr nonlinearity effects
+    where the resonance frequency shifts with photon number.
+    Works for an array of fdrive, but only for a single value of power.
+
+    This function solves the nonlinear equation for the photon number in a driven Kerr resonator, where the
+    resonance frequency depends on the photon number due to the Kerr effect. The calculation uses the input
+    drive frequency, resonator parameters, Kerr coefficient, and input power to determine the steady-state
+    photon population. The cubic equation is solved using Cardano's formula for cubic equations.
+
+    Parameters
+    ----------
+    fdrive : float or ndarray
+        Drive frequency or array of frequencies (in units specified by freq_unit).
+    fr : float
+        Resonator bare resonance frequency (same units as fdrive).
+    kappa : float
+        Total linewidth (decay rate) of the resonator (same units as fdrive).
+    kappa_c : float
+        Coupling linewidth (external coupling rate) (same units as fdrive).
+    kerr : float
+        Kerr nonlinearity coefficient (same units as fdrive).
+    power : float
+        Input power at the resonator (in units specified by power_unit).
+    port_type : str, optional
+        Type of resonator port, 'notch' or 'reflection'. Default is 'notch'.
+    freq_unit : str, optional
+        Frequency unit for all frequency-like parameters. Default is 'Hz'.
+    power_unit : str, optional
+        Power unit for the input power. Can be 'dBm' or 'watt'. Default is 'dBm'.
+
+    Returns
+    -------
+    n_solution : float or ndarray
+        Steady-state average photon number in the resonator for each drive frequency.
+
+
+    """
+    frequency_scaling_factor = get_frequency_scaling(freq_unit)
+    # convert dBm to W
+    if power_unit == 'dBm':
+        power_W = 10**(power/10.) /1000.
+    else:
+        power_W = power
+    delta = (fdrive - fr) / kappa
+    alpha_sq_in = power_W / (const.h * fdrive*frequency_scaling_factor) * 4*kappa_c/kappa**2
+    if port_type == 'notch':
+        # for notch resonators, the input power is split into two paths, so we need to divide by 2
+        alpha_sq_in = alpha_sq_in / 2
+
+    xi = alpha_sq_in * kerr / kappa
+    n_solution = _solve_cubic_for_photon_number_cardano(delta, xi)
+
+    return n_solution * alpha_sq_in
+
+def _solve_cubic_for_photon_number_cardano(delta, xi):
+    """
+    Solve cubic equation for photon number in nonlinear regime using Cardano's formula.
+    
+    The cubic equation is: n^3 + a*n^2 + b*n + c = 0
+    where coefficients come from the nonlinear resonator equation:
+    a = -2*delta / xi
+    b = (0.25 + delta**2) / xi**2
+    c = -0.5 / xi**2
+    
+    Parameters
+    ----------
+    delta : float or array-like
+        Normalized detuning.
+    xi : float
+        Normalized Kerr parameter.
+    alpha_sq_in : float
+        Normalized input power.
+    """
+    # Coefficients of: n^3 + a*n^2 + b*n + c = 0
+    a = -2*delta / xi
+    b = (0.25 + delta**2) / xi**2
+    c = -0.5 / xi**2
+    
+    # print(delta, xi, alpha_sq_in)
+    # Convert to depressed cubic: y^3 + p*y + q = 0
+    # using substitution n = y - a/3
+    p = b - a**2 / 3
+    q = 2*a**3 / 27 - a*b / 3 + c
+    
+    # Cardano's formula
+    # discriminant = (q/2)**2 + (p/3)**3 + 0j
+    u = -q/2 + ((q/2)**2 + (p/3)**3 + 0j)**(1/2)
+
+    u_root = u**(1/3)
+    v_root = -p / (3*u_root)   # enforces u_root*v_root = -p/3
+
+    # We need to find the real root, which can be done by taking the cube roots of u and v and summing them
+    omega = np.exp(2j*np.pi/3)
+    roots = []
+    for k in range(3):
+        roots.append((omega**(k))*u_root + (omega**(-k))*v_root)
+    roots = np.array(roots)
+
+    # take smallest real root, which corresponds to the physical solution for the photon number
+    if len(roots.shape) > 1:
+        y_solution = []
+        for root in roots.T:
+            real_roots = root[np.abs(root.imag) < 1e-8].real
+            real_roots.sort()
+            y_solution.append(real_roots[0])
+        y_solution = np.array(y_solution)
+    else:
+        root = roots
+        real_roots = root[np.abs(root.imag) < 1e-8].real
+        real_roots.sort()
+        y_solution = real_roots[0]
+
+    # substitute back n = y - a/3
+    n_solution = (y_solution - a/3)
+    return n_solution
 
 def guess_resonator_params(f, data, fraction=0.1, port_type='notch'):
     # do a Lorentzian fit to the magnitude of complex to get the resonance frequency and linewidth
