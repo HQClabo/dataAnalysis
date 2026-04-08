@@ -7,7 +7,14 @@ from resonator_tools import circuit
 import lmfit
 from .base import DataSet, val_to_index
 import dataAnalysis.resonator_fitting as resfit
+import warnings
 
+warnings.warn(
+    "The 'dataAnalysis.resonator' module is deprecated and its contents have been migrated. "
+    "Please use dataAnalysis.dataset instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 class DataSetVNA(DataSet):
     """
