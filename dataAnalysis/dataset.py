@@ -1107,6 +1107,8 @@ class PowerScanVNA(DataSetVNA):
         Args:
             freq_range : list, optional
                 Minimum and maximum frequency that will be considered for the fit.
+            power_range : list, optional
+                Minimum and maximum power that will be considered for the fit.
             attenuation : number, optional
                 Total estimated line attenuation. The default is 80.
             port_type : str, optional
@@ -1114,7 +1116,9 @@ class PowerScanVNA(DataSetVNA):
             normalized : boolean, optional
                 If True, the normalized data will be used for the fit. Default is True.
             method : str, optional
-                Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+                Method used for the fitting. Choose 'resonator_tools', 'lmfit' or 'lmfit_nonlinear'.
+                for 'lmfit_nonlinear', power_range only specifies the range for the preliminary linear fit.
+                The nonlinear fit is then performed over the full power range.
             freq_unit : str, optional
                 Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
             plot : boolean, optional
