@@ -308,10 +308,13 @@ def _fit_frequency_sweep_lmfit(
     fit_report["single_photon_W"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='watt')
     fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='dBm')
     fit_report['fitresults'] = result
-    
+
     if plot:
-        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
+        fig, axes = plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
                                  plot_initial_guesses=plot_initial_guesses)
+        return fit_report, (fig, axes)
+    
+    
     return fit_report
 
 def fit_power_sweep(
