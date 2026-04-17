@@ -1,19 +1,14 @@
 
+
 import numpy as np
-import qcodes as qc
-from qcodes.dataset.data_export import DSPlotData
-from qcodes.dataset.plotting import _rescale_ticks_and_units, plot_dataset
-from qcodes.dataset.descriptions.param_spec import ParamSpec
 import matplotlib.pyplot as plt
 import copy
-import warnings
+import qcodes as qc
+from qcodes.dataset.data_export import DSPlotData
+from qcodes.dataset.plotting import _rescale_ticks_and_units
+from qcodes.dataset.descriptions.param_spec import ParamSpec
+import dataAnalysis.resonator_fitting as resfit
 
-warnings.warn(
-    "The 'dataAnalysis.base' module is deprecated and its contents have been migrated. "
-    "Please use dataAnalysis.dataset instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
 
 def val_to_index(array, value):
     """
@@ -42,6 +37,7 @@ def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, othe
         other_array = other_array[lower_index:upper_index]
 
     return main_array, other_arrays
+
 
 class DataSet():
     """
@@ -805,6 +801,710 @@ class ConcatenatedDataSet(DataSet):
                 
 
 
+class DataSetVNA(DataSet):
+    """
+    A class representing a dataset from a Vector Network Analyzer (VNA) measurement. See DataSet class in base.py for more information.
+
+    Args:
+        exp (qcodes.dataset.experiment_container.Experiment, optional): The qcodes Experiment object.
+        run_id (str, optional): The ID of the measurement run. If not provided, the last recorded run ID in exp will be used.
+        station (str, optional): The name of the station. Defaults to None.
+        freq_range (tuple, optional): The frequency range to extract data from. Defaults to None.
+
+    Attributes:
+        name_mag (str): The name of the magnitude parameter.
+        name_phase (str): The name of the phase parameter.
+        name_freq (str): The name of the frequency parameter.
+        freq (ndarray): The frequency values.
+        mag (ndarray): The magnitude values.
+        phase (ndarray): The phase values.
+        cData (ndarray): The complex data calculated from magnitude and phase.
+
+    Methods:
+        _extract_data_vna_base(): Extracts data from a VNA measurement.
+        normalize_data_vna(run_id_bg, axis=0, interpolate=True): Normalizes the data using a background measurement.
+
+    Examples:
+        # Create a DataSetVNA object
+        ds = DataSetVNA(exp=exp, run_id='123')
+
+        # Normalize the data using a background measurement run (must be a single frequency sweep)
+        ds.normalize_data_vna(run_id_bg='456', axis=0, interpolate=True)
+
+        or
+
+        # Normalize the data using a arbitrary arrays for cData and frequency
+        cData = np.array([1+1j, 2+2j, 3+3j])
+        freq = np.array([1, 2, 3])
+        ds.normalize_data_vna(cData_bg=cData, freq_bg=freq, axis=0, interpolate=True)
+    """
+
+    def __init__(self, exp, run_id=None, station=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        self._extract_data_vna_base()
+
+    def _extract_data_vna_base(self):
+        """
+        Extracts data from a VNA (Vector Network Analyzer) measurement.
+
+        Generate attributes self.freq, self.mag, self.phase, self.cData from the paramspecs.
+
+        Returns:
+            None
+        """
+        # Find param names for mag, phase and freq
+        mag = self.get_dependent_parameter_by_name('magnitude')
+        phase = self.get_dependent_parameter_by_name('phase')
+        freq = self.get_independent_parameter_by_name('frequency')
+
+        if freq is None or mag is None or phase is None:
+            raise ValueError("The dataset does not contain the required parameters for a VNA measurement.")
+        
+        self.name_mag = mag['name']
+        mag_unit = mag['paramspec'].unit
+        self.name_phase = phase['name']
+        phase_unit = phase['paramspec'].unit
+        self.name_freq = freq['name']
+
+        # Convert phase to radians always
+        if phase_unit == 'rad':
+            pass
+        elif phase_unit == '°':
+            self.dependent_parameters[self.name_phase]['values'] *= np.pi/180
+        else:
+            raise ValueError(f'The phase \"{phase_unit}\" was not recognized.')
+        # Convert mag to dB always
+        if not mag_unit == 'dB':
+            self.dependent_parameters[self.name_mag]['values'] = 20*np.log10(abs(self.dependent_parameters[self.name_mag]['values']))
+
+        # Generate attributes
+        self.freq = freq['values']
+        self.mag = mag['values']
+        self.phase = phase['values']
+        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
 
+    def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True):
+        """
+        Normalize the measurement data using a background measurement run or provided background data.
+        This function normalizes the measurement data using either a 1D background measurement run identified by `run_id_bg` 
+        or provided background data (`cData_bg` and `freq_bg`). It assumes that the background run ID belongs to the same 
+        experiment as the data run ID.
 
+        Args:
+            run_id_bg (int, optional): ID of the background measurement run. Default is None.
+            cData_bg (np.array, optional): Complex background data. Default is None.
+            freq_bg (np.array, optional): Frequency data corresponding to the background data. Default is None.
+            axis (int, optional): Axis along which to normalize. Default is 0.
+            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match 
+                                          with the measurement data. Default is True.
+        Raises:
+            ValueError: If neither `run_id_bg` nor both `cData_bg` and `freq_bg` are provided.
+        """
+        if run_id_bg is not None:
+            ds_bg = DataSetVNA(self.exp, run_id_bg)
+            freq_bg = ds_bg.freq
+            cData_bg = ds_bg.cData
+        elif cData_bg is None or freq_bg is None:
+            raise ValueError("Either run_id_bg or cData_bg and freq_bg must be provided.")
+        
+        self.normalize_data_mag_phase(self.name_mag, self.name_phase, cData_bg, freq_bg, axis=axis, interpolate=interpolate)
+        self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
+        self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def normalize_data_from_Bscan_slice(self, run_id_Bscan: int, B_field_slice_value: float, axis: int=0, interpolate=True):
+        """
+        Normalize the measurement data (cdata, mag and phase) using a magnetic field sweep to obtain the background. A slice of the magnetic
+        field sweep is taken at the specified value of B field (or the closest slice) and used a background trace.
+
+        Args:
+            run_id_Bscan (int): ID of the magnetic field sweep to be used as background.
+            B_field_slice_value: value of the magnetic field where a slice should be taken and used as a background.
+            axis (int, optional): Axis along which to normalize. Default is 0. For power scans, 0 should be used. I don't know for other fancy
+                                    weird datasets. If things don't work in a 2D dataset, try switching axis.
+            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match 
+                                          with the measurement data. Default is True.
+        """
+        # Obtain the Bscan measurement
+        Bz_sweep = BScanVNA(exp=self.exp, run_id=run_id_Bscan)
+        bg_idx = val_to_index(Bz_sweep.field, B_field_slice_value)
+        bg_mag = Bz_sweep.mag[:, bg_idx]
+        bg_phase = Bz_sweep.phase[:, bg_idx]
+        bg_freq = Bz_sweep.freq
+
+        # Call normalize_data function (inherited from base class)
+        self.normalize_data(['param_0', 'param_1'], [bg_mag, bg_phase], bg_freq, axis=axis, interpolate=interpolate)
+        self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
+        self.phase_norm = self.dependent_parameters['param_1_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def plot_1D_normalized(self, **kwargs):
+        return self.plot_1D([self.name_mag+'_normalized', self.name_phase+'_normalized'], **kwargs)
+
+    def plot_2D_normalized(self, **kwargs):
+         return self.plot_2D([self.name_mag+'_normalized', self.name_phase+'_normalized'], **kwargs)
+
+
+class FrequencyScanVNA(DataSetVNA):
+    """
+    Class for 1D VNA frequency sweeps.
+
+    Args:
+        exp: Experiment.
+        run_id (optional): Run ID of the measurement. If not provided, the last measurement run is used.
+        station (optional): Station. 
+        freq_range (optional): Tuple with the min and max frequencies of the range to use.
+    """
+    def __init__(self, exp, run_id=None, station=None, freq_range:tuple=None):
+        # This will already extract self.freq, self.mag, self.phase
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        # Cut data with provided frequency range
+        self.extract_data_vna(freq_range)
+
+    def extract_data_vna(self, freq_range:tuple=None):
+        """
+        Extracts data from a VNA measurement.
+
+        Args:
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+            
+        Returns:
+            None
+        """
+        if freq_range:
+            freq_slice = self.find_slice(self.freq,freq_range)
+            self.freq = self.freq[freq_slice]
+            self.mag = self.mag[freq_slice]
+            self.phase = self.phase[freq_slice]
+            self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+
+    def cut_data_freq_slice(self, lower_freq=None, upper_freq=None):
+        freq_step = self.freq[1] - self.freq[0]
+        lower_index = int((lower_freq - self.freq[0])/freq_step) if lower_freq else 0
+        upper_index = int((upper_freq - self.freq[0])/freq_step) if upper_freq else -1
+
+        self.freq = self.freq[lower_index:upper_index]
+        self.mag = self.mag[lower_index:upper_index]
+        self.phase = self.phase[lower_index:upper_index]
+        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+        try:
+            self.cData_norm = self.cData_norm[lower_index:upper_index]
+            self.mag_norm = self.mag_norm[lower_index:upper_index]
+            self.phase_norm = self.phase_norm[lower_index:upper_index]
+        except:
+            pass
+
+
+    def analyze(
+            self,
+            freq_range=None,
+            power=-140,
+            port_type='notch',
+            normalized=True,
+            method='resonator_tools',
+            guesses={},
+            freq_unit='Hz',
+            do_plots=True,
+            plot_initial_guesses=False,
+            **kwargs
+            ):
+        """
+        Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
+
+        Args:
+            freq_range : list, optional
+                Minimum and maximum frequency that will be considered for the fit.
+            power : ndarray, optional
+                Input power in dBm. Default is -140 dBm.
+            port_type : str, optional
+                Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
+            normalized : boolean, optional
+                If True, the normalized data will be used for the fit. Default is True.
+            method : str, optional
+                Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+            freq_unit : str, optional
+                Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+            plot : boolean, optional
+                Enable option to plot the fit. The default is False.
+            plot_initial_guesses : boolean, optional
+                Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+            **kwargs : dict
+                Additional keyword arguments for lmfit.Model.fit.
+
+        Returns:
+            None
+
+        Attributes:
+            Dictionary containing the results of the fit.
+        """
+        cData = self.cData
+        if normalized:
+            try:
+                cData = self.cData_norm
+            except AttributeError:
+                print("Warning: Normalized data not found. Using raw data instead.")
+        freq_scaling = resfit.get_frequency_scaling(freq_unit)
+        self.fit_report = resfit.fit_frequency_sweep(cData.T, self.freq/freq_scaling, freq_range, power,
+                                                     port_type, method, guesses, freq_unit, do_plots, plot_initial_guesses, **kwargs)
+
+
+class PowerScanVNA(DataSetVNA):
+    def __init__(self, exp, run_id=None, station=None, freq_range=None, power_range=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        self.extract_data_vna(freq_range, power_range)
+
+    def extract_data_vna(self, freq_range=None, power_range=None):
+        """
+        Extracts data from a VNA measurement.
+
+        Args:
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+            power_range (tuple, optional): Power range to extract data from. Defaults to None.
+            
+        Returns:
+            None
+        """
+        for key, param in self.independent_parameters.items():
+            if 'power' in param['paramspec'].name: 
+                self.name_power = key
+        self.power = self.independent_parameters[self.name_power]['values']
+
+        # Select only the provided frequency and power range
+        freq_slice = slice(0,None)
+        power_slice = slice(0,None)
+        if freq_range: 
+            freq_slice = self.find_slice(self.freq, freq_range)
+        if power_range: 
+            power_slice = self.find_slice(self.power, power_range)
+        self.freq = self.freq[freq_slice]
+        self.power = self.power[power_slice]
+        if self.name_freq == 'x':
+            slice_2d = (power_slice, freq_slice)
+        else:
+            slice_2d = (freq_slice, power_slice)
+        self.mag = self.mag[slice_2d]
+        self.phase = self.phase[slice_2d]
+        self.cData = self.cData[slice_2d]
+
+    def analyze(
+            self,
+            freq_range=None,
+            power_range=None,
+            attenuation=0,
+            port_type='notch',
+            normalized=True,
+            method='resonator_tools',
+            guesses={},
+            freq_unit='Hz',
+            do_plots=True,
+            plot_initial_guesses=False,
+            **kwargs
+            ):
+        """
+        Perform a resonator fit of the data using the specified using resonator_tools. The results can be found in self.fit_report.
+
+        Args:
+            freq_range : list, optional
+                Minimum and maximum frequency that will be considered for the fit.
+            power_range : list, optional
+                Minimum and maximum power that will be considered for the fit.
+            attenuation : number, optional
+                Total estimated line attenuation. The default is 80.
+            port_type : str, optional
+                Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
+            normalized : boolean, optional
+                If True, the normalized data will be used for the fit. Default is True.
+            method : str, optional
+                Method used for the fitting. Choose 'resonator_tools', 'lmfit' or 'lmfit_nonlinear'.
+                for 'lmfit_nonlinear', power_range only specifies the range for the preliminary linear fit.
+                The nonlinear fit is then performed over the full power range.
+            freq_unit : str, optional
+                Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+            plot : boolean, optional
+                Enable option to plot the individual fits. The default is False.
+            plot_initial_guesses : boolean, optional
+                Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+            **kwargs : dict
+                Additional keyword arguments for lmfit.Model.fit.
+
+        Returns:
+            None
+        
+        Attributes:
+            Dictionary containing the results of the fit as np.arrays for each parameter.
+        """
+        cData = self.cData
+        if normalized:
+            try:
+                cData = self.cData_norm
+            except AttributeError:
+                print("Warning: Normalized data not found. Using raw data instead.")
+        freq_scaling = resfit.get_frequency_scaling(freq_unit)
+        self.fit_report = resfit.fit_power_sweep(cData.T, self.freq/freq_scaling, self.power, freq_range, power_range, attenuation,
+                                                  port_type, method, guesses, freq_unit, do_plots, plot_initial_guesses, **kwargs)
+    
+    def normalize_data_from_index(self, idx=-1, axis=0):
+        """
+        Normalize magnitude and phase with a line cut at the specified index. Default idx is -1, usually corresponding to the highest power trace.
+        """
+        self.normalize_data(self.name_mag, self.mag[:,idx], self.freq, axis=axis, interpolate=False)
+        self.normalize_data(self.name_phase, self.phase[:,idx], self.freq, axis=axis, interpolate=False)
+        self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
+        self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def plot_QvsP(self,label='',log_y=True,threshold=None,**kwargs):
+        """
+        Plots the quality factors (Qi, Qc, Ql) versus photon number (Nph) with error bars.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_QvsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, **kwargs)
+
+    def plot_kappavsP(self,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
+        """
+        Plots the quality factors (kappa_i, kappa_c, kappa_l) versus photon number (Nph) with error bars.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_kappavsP(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
+
+
+class BScanVNA(DataSetVNA):
+    def __init__(self, exp, run_id=None, station=None, field_param_name='mag', freq_range=None, field_range=None):
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        self.extract_data_vna(field_param_name, freq_range, field_range)
+
+    def extract_data_vna(self, field_param_name, freq_range=None, field_range=None):
+        """
+        Extracts data from a VNA (Vector Network Analyzer) measurement.
+
+        Args:
+            field_param_name (string, optional): String contained in the magnetic field parameter name. Defaults to "mag".
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+            field_range (tuple, optional): Magnetic field range to extract data from. Defaults to None.
+            
+        Returns:
+            None
+        """
+        self.name_field = None
+        for key, param in self.independent_parameters.items():
+            if field_param_name in param['paramspec'].name: self.name_field = key
+        if not self.name_field: raise ValueError(f"No parameter found containing \"{field_param_name}\"")
+        self.field = self.independent_parameters[self.name_field]['values']
+
+        freq_slice = slice(0,None)
+        field_slice = slice(0,None)
+        if freq_range: freq_slice = self.find_slice(self.freq, freq_range)
+        if field_range: field_slice = self.find_slice(self.field, field_range)
+        
+        self.freq = self.freq[freq_slice]
+        self.field = self.field[field_slice]
+        if self.name_freq == 'x':
+            slice_2d = (field_slice, freq_slice)
+        else:
+            slice_2d = (freq_slice, field_slice)
+        self.mag = self.mag[slice_2d]
+        self.phase = self.phase[slice_2d]
+        self.cData = self.cData[slice_2d]
+
+    def analyze(
+            self,
+            freq_centers=None,
+            freq_span=None,
+            field_range=None,
+            input_power=0,
+            port_type='notch',
+            normalized=True,
+            method='resonator_tools',
+            guesses={},
+            freq_unit='Hz',
+            do_plots=True,
+            plot_initial_guesses=False,
+            **kwargs
+            ):
+        """
+        Analyze the resonator data over a specified frequency and field range.
+        Parameters:
+            center_freqs : list
+                List of center frequencies for each magnetic field value to determine the fitting window.
+            freq_span : float
+                Single value for the frequency span of the fitting window.
+            field_range : list
+                List of minimum and maximum magnetic field values to consider for the fit.
+            input_power : number, optional
+                Applied input power in dBm. The default is -140 dBm.
+            port_type : str, optional
+                Type of the resonator port. Choose 'notch' or 'reflection. The default is 'notch'.
+            normalized : boolean, optional
+                If True, the normalized data will be used for the fit. Default is True. 
+            method : str, optional
+                Method used for the fitting. Choose 'resonator_tools' or 'lmfit'.
+            freq_unit : str, optional
+                Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+            plot : boolean, optional
+                Enable option to plot the individual fits. The default is False.
+            plot_initial_guesses : boolean, optional
+                Enable option to plot also the initial guesses for the fit. Only active if plot=True. The default is False.
+            **kwargs : dict
+                Additional keyword arguments for lmfit.Model.fit.
+
+        Returns:
+            None:
+                The results are stored in the instance variable `fit_report`.
+        Raises:
+            ValueError:
+                If an unsupported port type is specified.
+        Notes:
+        The `fit_report` dictionary contains the following keys:
+            - "Qi": Internal quality factor.
+            - "Qi_err": Error in internal quality factor.
+            - "Qc": Coupling quality factor.
+            - "Qc_err": Error in coupling quality factor.
+            - "Ql": Loaded quality factor.
+            - "Ql_err": Error in loaded quality factor.
+            - "Nph": Number of photons in the resonator.
+            - "single_photon_W": Single photon limit in watts.
+            - "single_photon_dBm": Single photon limit in dBm.
+            - "fr": Resonant frequency.
+            - "fitresults": List of fit results for each field.
+            - "port": List of port objects for each field.
+        """
+
+        if normalized:
+            cData = self.cData_norm
+        else:
+            cData = self.cData
+        freq_scaling = resfit.get_frequency_scaling(freq_unit)
+        self.fit_report = resfit.fit_field_sweep(cData.T, self.freq/freq_scaling, self.field, freq_centers, freq_span, field_range, input_power,
+                                                  port_type, method, guesses, freq_unit, do_plots, plot_initial_guesses, **kwargs)
+
+    def get_freq_centers_JJ(self, f_max, field_flux_quantum, field_offset=0, field=None):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            field_offset (float, optional): Offset field. Defaults to 0.
+            field (np.array, optional): Array of field values. If None, the field values from the dataset are used. Defaults to None.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        if field is None:
+            field = self.field
+        # in numpy, the sinc function already includes the pi
+        freq_centers = f_max * np.sqrt(abs(np.sinc((field - field_offset)/field_flux_quantum)))
+        return freq_centers
+    
+    def get_freq_centers_JJ_with_gap_reduction(self, f_max, field_flux_quantum, critical_field, field_offset=0, field=None):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            field_offset (float, optional): Offset field. Defaults to 0.
+            field (np.array, optional): Array of field values. If None, the field values from the dataset are used. Defaults to None.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        if field is None:
+            field = self.field
+        # in numpy, the sinc function already includes the pi
+        freq_centers = f_max * np.sqrt(abs(np.sinc((field - field_offset)/field_flux_quantum))) * (1 - (field/critical_field)**2)**(1/4)
+        return freq_centers
+    
+    def get_freq_centers_JJ_with_gap_reduction(self, f_max, field_flux_quantum, critical_field, field_offset=0, field=None):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            critical_field (float): Critical field strength.
+            field_offset (float, optional): Offset field. Defaults to 0.
+            field (np.array, optional): Array of field values. If None, the field values from the dataset are used. Defaults to None.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        if field is None:
+            field = self.field
+        # in numpy, the sinc function already includes the pi
+        freq_centers = f_max * np.sqrt(abs(np.sinc((field - field_offset)/field_flux_quantum))) * (1 - (field/critical_field)**2)**(1/4)
+        return freq_centers
+    
+    def get_freq_centers_SQUID(self, f_max, field_flux_quantum, field_offset=0, field=None):
+        """
+        Calculate the expected resonant frequency of a Josephson junction qubit for each field value.
+
+        Args:
+            f_max (float): Maximum frequency of the qubit.
+            field_flux_quantum (float): Field corresponding to one flux quantum.
+            field_offset (float, optional): Offset field. Defaults to 0.
+            field (np.array, optional): Array of field values. If None, the field values from the dataset are used. Defaults to None.
+
+        Returns:
+            freq_centers (np.array): Array of expected resonant frequencies.
+        """
+        if field is None:
+            field = self.field
+        freq_centers = f_max * np.sqrt(abs(np.cos(np.pi*(field - field_offset)/field_flux_quantum)))
+        return freq_centers
+
+
+    def normalize_data_from_index(self, idx=-1, axis=0):
+        """
+        Normalize magnitude and phase with a line cut at the specified index. Default idx is -1, usually corresponding to the highest power trace.
+        """
+        self.normalize_data(self.name_mag, self.mag[:,idx], self.freq, axis=axis, interpolate=False)
+        self.normalize_data(self.name_phase, self.phase[:,idx], self.freq, axis=axis, interpolate=False)
+        self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
+        self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def plot_QvsB(self,label='',log_y=True,threshold=None,**kwargs):
+        """
+        Plots the quality factors (Qi, Qc, Ql) with error bars versus magnetic field.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_QvsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, **kwargs)
+
+    def plot_kappavsB(self,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
+        """
+        Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_kappavsB(self.fit_report, self.field, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
+
+    def plot_Qvsfr(self,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
+        """
+        Plots the quality factors (Qi, Qc, Ql) with error bars versus resonance frequency.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_Qvsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
+
+    def plot_kappavsfr(self,label='',log_y=True,threshold=None,freq_unit='Hz',**kwargs):
+        """
+        Plots the quality factors (kappa_i, kappa_c, kappa_l) with error bars versus magnetic field.
+
+        Parameters:
+        -----------
+        label : str, optional
+            Title of the plot. Default is an empty string.
+        log_y : bool, optional
+            If True, use a logarithmic scale for the y-axis. Default is True.
+        threshold : float, optional
+            Threshold factor for the discarding bad fits. This factor is used to filter out the fits with large errors
+            using the conditions threshold*Q < Q_err for all quality factors. If None, no fit is discarded. Default is None.
+        freq_unit : str, optional
+            Unit in which frequency is provided. This will determine the proper scaling factors. Default is 'Hz'.
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the errorbar function.
+
+        Returns:
+        --------
+        fig : matplotlib.figure.Figure
+            The figure object containing the plot.
+        ax : matplotlib.axes._subplots.AxesSubplot
+            The axes object containing the plot.
+        """
+        return resfit.plot_kappavsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)
