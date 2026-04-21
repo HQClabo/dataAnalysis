@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
+from scipy.stats import linregress
 import qcodes as qc
 from qcodes.dataset.data_export import DSPlotData
 from qcodes.dataset.plotting import _rescale_ticks_and_units
@@ -994,6 +995,55 @@ class FrequencyScanVNA(DataSetVNA):
             self.phase_norm = self.phase_norm[lower_index:upper_index]
         except:
             pass
+
+    def delay_correction(self, normalized=True, delay=None, fraction=0.1):
+        """
+        Apply a delay correction to the complex data.
+
+        Args:
+            normalized (bool, optional): Whether to apply the correction to the normalized data (if available) or the raw data. Default is True.
+            delay (float, optional): The delay time in seconds to be corrected for. If None, the delay will be estimated from a linear fit of the unwrapped phase. Default is None.
+            fraction (float, optional): The fraction of the data to use for the linear fit if delay is None. Default is 0.1 (i.e., the first and last 10% of the data will be used for the fit).
+
+        Returns:
+            delay (float): The delay time that was corrected for.
+        """
+        freq = self.freq
+        try:
+            data = self.cData_norm
+        except AttributeError:
+            data = self.cData
+            if normalized:
+                print("Warning: Normalized data not found. Using raw data instead.")
+
+        phase = np.unwrap(np.angle(data))
+        if delay is None:
+            # linear fit of first and last 10% of the unwrapped phase
+            first = int(len(freq)//(1/fraction))
+            last = -int(len(freq)//(1/fraction))
+            fit1 = linregress(freq[:first], phase[:first])
+            fit2 = linregress(freq[last:], phase[last:])
+            delay = -(fit1.slope + fit2.slope) / 2 / (2*np.pi)
+
+        alpha = (phase[len(phase)//2] + 2*np.pi*delay*freq[0]) % (2*np.pi)
+        correction = np.exp(-1j * (alpha - 2*np.pi*freq*delay))
+
+        try:
+            self.cData_norm *= correction
+            self.mag_norm = 20*np.log10(abs(self.cData_norm))
+            self.phase_norm = np.angle(self.cData_norm)
+            self.dependent_parameters[self.name_mag+'_normalized']['values'] = self.mag_norm
+            self.dependent_parameters[self.name_phase+'_normalized']['values'] = self.phase_norm
+        except AttributeError:
+            self.cData *= correction
+            self.mag = 20*np.log10(abs(self.cData))
+            self.phase = np.angle(self.cData)
+            self.dependent_parameters[self.name_mag]['values'] = self.mag
+            self.dependent_parameters[self.name_phase]['values'] = self.phase
+            if normalized:
+                print("Warning: Normalized data not found. Using raw data instead.")
+        
+        return delay
 
 
     def analyze(
