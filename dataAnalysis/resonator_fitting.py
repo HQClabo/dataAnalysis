@@ -14,20 +14,274 @@ from resonator_tools import circuit
 import matplotlib.pyplot as plt
 import inspect
 import dataAnalysis.plotting_functions as myplt
+import dataAnalysis.utils as utils
 
 #%% functions for resonator fitting
 
 def S21_resonator_notch(fdrive, fr, kappa, kappa_c, a, alpha, delay, phi0):
-        delta_r = fdrive - fr
-        S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - 1j/2*(kappa))
-        environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
-        return S21 * environment
+    """
+    Calculates the complex transmission coefficient S21 for a resonator in a notch configuration.
+
+    Parameters:
+        fdrive (float or np.ndarray): The drive frequency or array of frequencies (Hz).
+        fr (float): Resonator frequency (Hz).
+        kappa (float): Total linewidth (Hz).
+        kappa_c (float): Coupling linewidth (Hz).
+        a (float): Amplitude scaling factor for the environment.
+        alpha (float): Additional phase offset for the environment (radians).
+        delay (float): Cable or system delay (seconds).
+        phi0 (float): Coupling phase offset (radians).
+
+    Returns:
+        complex or np.ndarray: The calculated S21 transmission coefficient at the given drive frequency/frequencies.
+    """
+    delta_r = fdrive - fr
+    S21 = (delta_r - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - 1j/2*(kappa))
+    environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+    return S21 * environment
 
 def S11_resonator_reflection(fdrive, fr, kappa, kappa_c, a, alpha, delay):
+    """
+    Calculates the complex transmission coefficient S11 for a resonator in a reflection configuration.
+
+    Parameters:
+        fdrive (float or np.ndarray): The drive frequency or array of frequencies (Hz).
+        fr (float): Resonator frequency (Hz).
+        kappa (float): Total linewidth (Hz).
+        kappa_c (float): Coupling linewidth (Hz).
+        a (float): Amplitude scaling factor for the environment.
+        alpha (float): Additional phase offset for the environment (radians).
+        delay (float): Cable or system delay (seconds).
+
+    Returns:
+        complex or np.ndarray: The calculated S21 transmission coefficient at the given drive frequency/frequencies.
+    """
     delta_r = fdrive - fr
     S11 = 2*kappa_c / (kappa + 2*1j*delta_r) - 1
     environment = a * np.exp(1j * (alpha - 2*np.pi*fdrive*delay))
     return S11 * environment
+
+def S21_resonator_notch_nonlinear(fdrive, power, fr, kappa, kappa_c, a, alpha, delay, phi0, Kerr):
+    """
+    Calculate the S21 transmission response of a nonlinear (Kerr) resonator in a notch configuration.
+
+    This function models the transmission (S21) of a resonator whose resonance frequency shifts with photon number
+    due to the Kerr nonlinearity. The photon number is calculated self-consistently for each drive frequency and power,
+    and the resulting frequency shift is included in the response.
+
+    Works for an array of fdrive, but only for a single value of power.
+
+    Parameters
+    ----------
+    fdrive : float or ndarray
+        Drive frequency or array of frequencies (in units specified by freq_unit).
+    power : float or ndarray
+        Input power at the resonator (in dBm).
+    fr : float
+        Bare resonance frequency of the resonator (same units as fdrive).
+    kappa : float
+        Total linewidth (decay rate) of the resonator (same units as fdrive).
+    kappa_c : float
+        Coupling linewidth (external coupling rate) (same units as fdrive).
+    a : float
+        Amplitude scaling factor for the environment/background.
+    alpha : float
+        Phase offset for the environment/background.
+    delay : float
+        Cable delay (in seconds).
+    phi0 : float
+        Additional phase parameter for the notch response.
+    Kerr : float
+        Kerr nonlinearity coefficient (same units as fdrive).
+
+    Returns
+    -------
+    S21 : complex or ndarray
+        The complex S21 transmission response of the nonlinear resonator at each drive frequency.
+    """
+    delta_r = fdrive - fr
+    nph = _get_photon_number_nonlinear(fdrive, power, fr, kappa, kappa_c, Kerr, port_type='notch')
+
+    S21 = (delta_r - Kerr*nph - 1j/2*(kappa - kappa_c*(np.exp(1j*phi0)/np.cos(phi0)))) / (delta_r - Kerr*nph - 1j/2*(kappa))
+    environment = a * np.exp(1j*(alpha - delay*2*np.pi*fdrive))
+    return S21 * environment
+
+def S11_resonator_reflection_nonlinear(fdrive, power, fr, kappa, kappa_c, a, alpha, delay, Kerr):
+    """
+    Calculate the S11 reflection response of a nonlinear (Kerr) resonator in a reflection configuration.
+
+    This function models the reflection (S11) of a resonator whose resonance frequency shifts with photon number
+    due to the Kerr nonlinearity. The photon number is calculated self-consistently for each drive frequency and power,
+    and the resulting frequency shift is included in the response.
+
+    Works for an array of fdrive, but only for a single value of power.
+
+    Parameters
+    ----------
+    fdrive : float or ndarray
+        Drive frequency or array of frequencies (in units specified by freq_unit).
+    power : float or ndarray
+        Input power at the resonator (in dBm).
+    fr : float
+        Bare resonance frequency of the resonator (same units as fdrive).
+    kappa : float
+        Total linewidth (decay rate) of the resonator (same units as fdrive).
+    kappa_c : float
+        Coupling linewidth (external coupling rate) (same units as fdrive).
+    a : float
+        Amplitude scaling factor for the environment/background.
+    alpha : float
+        Phase offset for the environment/background.
+    delay : float
+        Cable delay (in seconds).
+    Kerr : float
+        Kerr nonlinearity coefficient (same units as fdrive).
+
+    Returns
+    -------
+    S11 : complex or ndarray
+        The complex S11 reflection response of the nonlinear resonator at each drive frequency.
+    """
+    delta_r = fdrive - fr
+    nph = _get_photon_number_nonlinear(fdrive, power, fr, kappa, kappa_c, Kerr, port_type='reflection')
+
+    S11 = 2*kappa_c / (kappa + 2*1j*(delta_r - Kerr*nph)) - 1
+    environment = a * np.exp(1j * (alpha - 2*np.pi*fdrive*delay))
+    return S11 * environment
+
+def _get_photon_number_nonlinear(fdrive, power, fr, kappa, kappa_c, Kerr, port_type='notch'):
+    """
+    Calculate the average number of photons in a nonlinear resonator, accounting for Kerr nonlinearity effects
+    where the resonance frequency shifts with photon number.
+    Works for an array of fdrive, but only for a single value of power.
+
+    This function solves the nonlinear equation for the photon number in a driven Kerr resonator, where the
+    resonance frequency depends on the photon number due to the Kerr effect. The calculation uses the input
+    drive frequency, resonator parameters, Kerr coefficient, and input power to determine the steady-state
+    photon population. The cubic equation is solved using Cardano's formula for cubic equations.
+
+    Parameters
+    ----------
+    fdrive : float or ndarray
+        Drive frequency or array of frequencies (in units specified by freq_unit).
+    fr : float
+        Resonator bare resonance frequency (same units as fdrive).
+    kappa : float
+        Total linewidth (decay rate) of the resonator (same units as fdrive).
+    kappa_c : float
+        Coupling linewidth (external coupling rate) (same units as fdrive).
+    Kerr : float
+        Kerr nonlinearity coefficient (same units as fdrive).
+    power : float
+        Input power at the resonator (in units specified by power_unit).
+    port_type : str, optional
+        Type of resonator port, 'notch' or 'reflection'. Default is 'notch'.
+
+    Returns
+    -------
+    nph : float or ndarray
+        Steady-state average photon number in the resonator for each drive frequency.
+    """
+    power_W = 10**(power/10.) /1000.
+    delta = (fdrive - fr) / kappa
+    alpha_sq_in = power_W / (const.h * fdrive) * kappa_c/kappa**2
+    xi = alpha_sq_in * Kerr / kappa
+    n_solution = _solve_cubic_for_photon_number_cardano(delta, xi, port_type=port_type)
+
+    return n_solution * alpha_sq_in
+
+def _solve_cubic_for_photon_number_cardano(delta, xi, port_type='notch'):
+    """
+    Solve cubic equation for photon number in nonlinear regime using Cardano's formula.
+    
+    The cubic equation is: n^3 + a*n^2 + b*n + c = 0
+    where coefficients come from the nonlinear resonator equation:
+    a = -2*delta / xi
+    b = (0.25 + delta**2) / xi**2
+    c = -0.5 / xi**2
+    
+    Parameters
+    ----------
+    delta : float or array-like
+        Normalized detuning.
+    xi : float
+        Normalized Kerr parameter.
+    port_type : str
+        Resonator port type. Can either be 'notch' or 'reflection'. Default is 'notch'.
+
+    Returns
+    -------
+    n_solution : float or array-like
+        Real solution for n. Still has to be multiplied with the normalized input field to get the photon number.
+    """
+    # Coefficients of: n^3 + a*n^2 + b*n + c = 0
+    a = -2*delta / xi
+    b = (0.25 + delta**2) / xi**2
+    if port_type=='notch':
+        c = -0.5 / xi**2
+    elif port_type=='reflection':
+        c = -1 / xi**2
+    else:
+        raise ValueError("'port_type' must either be 'notch' or 'reflection'")
+
+    # print(delta, xi, alpha_sq_in)
+    # Convert to depressed cubic: y^3 + p*y + q = 0
+    # using substitution n = y - a/3
+    p = b - a**2 / 3
+    q = 2*a**3 / 27 - a*b / 3 + c
+    
+    # Cardano's formula
+    # discriminant = (q/2)**2 + (p/3)**3 + 0j
+    # u = -q/2 + ((q/2)**2 + (p/3)**3 + 0j)**(1/2)
+
+    # Scale coefficients to avoid too large or to small numbers
+    # This approach maintains the efficiency of the vectorized Cardano implementation for arrays.
+    # The roots remain identical because scaling the polynomial coefficients by a constant doesn't change its roots.
+    abs_coeffs = np.stack([np.abs(p), np.abs(q)])
+    m = np.sqrt(np.minimum.reduce(abs_coeffs) * np.maximum.reduce(abs_coeffs))
+    m = np.where(m == 0, 1, m)  # avoid division by zero if all coeffs are zero
+    u = (-q/(2*m) + ((q/(2*m))**2 + (p/(3*m**(2/3)))**3 + 0j)**(1/2))
+
+    u_root = u**(1/3) * m**(1/3)   # scale back the root to the original scale
+    # u_root = u**(1/3)
+    v_root = -p / (3*u_root)   # enforces u_root*v_root = -p/3
+
+    # We need to find the real root, which can be done by taking the cube roots of u and v and summing them
+    omega = np.exp(2j*np.pi/3)
+    roots = []
+    for k in range(3):
+        roots.append((omega**(k))*u_root + (omega**(-k))*v_root)
+    roots = np.array(roots)
+    roots[:,u_root==0] = 0
+
+    # take smallest real root, which corresponds to the physical solution for the photon number
+    if len(roots.shape) == 3:
+        y_solution = np.zeros(roots.shape[1::])
+        for i in range(roots.shape[1]):
+            for j in range(roots.shape[2]):
+                y_solution[i,j] = _find_real_root(roots[:,i,j], delta[i,j], xi[i,j])
+    elif len(roots.shape) == 2:
+        y_solution = np.zeros(roots.shape[1])
+        for i, root in enumerate(roots.T):
+            y_solution[i] = _find_real_root(root, delta[i], xi[i])
+    else:
+        y_solution = _find_real_root(roots, delta, xi)
+
+    # substitute back n = y - a/3
+    n_solution = (y_solution - a/3)
+    return n_solution
+
+def _find_real_root(roots, delta, xi):
+    # delta and xi are only needed for debugging purposes
+    # here, the threshold 1e-10 is multiplied with np.abs(roots) to avoid scaling issues
+    real_roots = roots[np.abs(roots.imag) < np.abs(roots)*1e-10].real
+    if len(real_roots) == 0:
+        # if no real roots are found, it might be because it is zero
+        real_roots = roots[np.abs(roots.imag) < 1e-10].real
+        if len(real_roots) == 0:
+            raise ValueError(f"No real roots found. Roots were: {roots}, delta={delta}, xi={xi}")
+    real_roots.sort()
+    return real_roots[0]
 
 def guess_resonator_params(f, data, fraction=0.1, port_type='notch'):
     # do a Lorentzian fit to the magnitude of complex to get the resonance frequency and linewidth
@@ -70,32 +324,47 @@ def get_frequency_scaling(freq_unit='Hz'):
     else:
         raise ValueError(f"Unsupported frequency unit: {freq_unit}. Must be one of 'GHz', 'MHz', 'kHz', 'Hz'.")
 
-def get_single_photon_limit(fitresults, freq_unit='Hz', unit='dBm'):
+def get_single_photon_limit(fitresults, port_type='notch', freq_unit='Hz', unit='dBm'):
     '''
     returns the amout of power in units of W necessary
     to maintain one photon on average in the cavity
-    unit can be 'dbm' or 'watt'
+    unit can be 'dBm' or 'watt'
     '''
     power_scaling = get_frequency_scaling(freq_unit)**2
     fr = fitresults['fr']
     k_c = 2*np.pi*fitresults['kappa_c']
-    k_i = 2*np.pi*(fitresults['kappa']-fitresults['kappa_c'])
-    power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*(k_c+k_i)**2)) * power_scaling
+    k = 2*np.pi*fitresults['kappa']
+    power_watts = 1./(4.*k_c/(2.*np.pi*const.hbar*fr*k**2)) * power_scaling
+    if port_type == 'notch':
+        # for notch resonators, the input power is split into two paths, so we need to multiply the single photon limit by 2
+        power_watts = power_watts * 2
     if unit=='dBm':
-        return 10*np.log10(power_watts*1000.)
+        return utils.power_watts_to_dBm(power_watts)
     elif unit=='watt':
-        return power_watts
+        return unit=='watt'
         
-def get_photons_in_resonator(power, fitresults, freq_unit='Hz', unit='dBm'):
-		'''
-		returns the average number of photons
-		for a given power (defaul unit is 'dbm')
-		unit can be 'dBm' or 'watt'
-		'''
-		if fitresults!={}:
-			if unit=='dBm':
-				power = 10**(power/10.) /1000.
-			return power / get_single_photon_limit(fitresults, freq_unit=freq_unit, unit='watt')
+def get_photons_in_resonator(power, fitresults, port_type='notch', freq_unit='Hz', unit='dBm'):
+    '''
+    returns the average number of photons
+    for a given power (defaul unit is 'dBm')
+    unit can be 'dBm' or 'watt'
+    '''
+    if fitresults=={}:
+        raise ValueError("Fit results are empty. Please provide valid fit results to calculate the number of photons in the resonator.")
+    if unit=='dBm':
+        power_watts = utils.power_dBm_to_watts(power)
+    elif unit=='watt':
+        power_watts = power
+    freq_scaling = get_frequency_scaling(freq_unit)
+    fr = fitresults['fr']
+    k_c = 2*np.pi*fitresults['kappa_c']
+    k = 2*np.pi*fitresults['kappa']
+    nph = power_watts/const.h*fr * 4.*k_c/k**2 / freq_scaling**2
+    if port_type=='notch':
+        # for notch resonators, the input power is split into two paths, so we need to divide the number of photons by 2
+        nph = nph / 2
+    return nph
+    # return power / get_single_photon_limit(fitresults, port_type=port_type, freq_unit=freq_unit, unit='watt')
         
 def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz', plot_initial_guesses=False):
     alpha = 0.7
@@ -118,7 +387,43 @@ def plot_resonator_fit_lmfit(freq, data, fit_result, freq_unit='Hz', plot_initia
     for ax in axes:
         ax.set_aspect(1/ax.get_data_ratio())
     return fig, axes
-        
+
+def plot_resonator_fit_lmfit_nonlinear(freq, power, data, fit_result, freq_unit='Hz', plot_initial_guesses=False):
+    freq = freq * get_frequency_scaling(freq_unit)/1e9
+    xlabel = r'$f_{drive}$ (GHz)'
+    ylabel = '$P_{in}$ (dBm)'
+    clabel1 = '$|S_{21}|$ (dB)'
+    clabel2 = 'arg$(S_{21})$ (rad)'
+
+    data_to_plot = [data, fit_result.best_fit]
+    figs = []
+    axes = []
+    for i in range(2):
+        if i==0:
+            title = 'Raw data Magnitude'
+        else:
+            title = 'Fitted data Magnitude'
+        fig, ax = plt.subplots()
+        figs.append(fig)
+        axes.append(ax)
+        plot_2D = ax.pcolormesh(freq, power, 20*np.log10(abs(data_to_plot[i])), rasterized=True)
+        cb = fig.colorbar(plot_2D, ax=ax, orientation='vertical')
+        myplt.format_plot(ax, xlabel=xlabel, ylabel=ylabel, subtitle=title)
+        myplt.format_colorbar(cb, clabel=clabel1, labelpos='right')
+    for i in range(2):
+        if i==0:
+            title = 'Raw data Phase'
+        else:
+            title = 'Fitted data Phase'
+        fig, ax = plt.subplots()
+        figs.append(fig)
+        axes.append(ax)
+        plot_2D = ax.pcolormesh(freq, power, np.angle(data_to_plot[i]), rasterized=True)
+        cb = fig.colorbar(plot_2D, ax=ax, orientation='vertical')
+        myplt.format_plot(ax, xlabel=xlabel, ylabel=ylabel, subtitle=title)
+        myplt.format_colorbar(cb, clabel=clabel2, labelpos='right')
+    return figs, axes
+
 def fit_frequency_sweep(
         data,
         freq,
@@ -219,9 +524,12 @@ def _fit_frequency_sweep_resonator_tools(
     fit_report["Ql_err"] = port.fitresults["Ql_err"]
     if port_type == 'notch':
         fit_report["phi0"] = port.fitresults["phi0"]
-    fit_report["Nph"] = port.get_photons_in_resonator(power,unit='dBm')
-    fit_report["single_photon_W"] = port.get_single_photon_limit(unit='watt')
-    fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm')
+        power_scaling = 2 # for notch resonators, the input power is split into two paths, so we need to multiply the power by 2 to get the power in the resonator
+    elif port_type == 'reflection':
+        power_scaling = 1
+    fit_report["Nph"] = port.get_photons_in_resonator(power,unit='dBm') / power_scaling
+    fit_report["single_photon_W"] = port.get_single_photon_limit(unit='watt') * power_scaling
+    fit_report["single_photon_dBm"] = port.get_single_photon_limit(unit='dBm') * power_scaling
     fit_report["fr"] = port.fitresults["fr"]
     fit_report['fitresults'] = port.fitresults
     fit_report['z_data_sim'] = port.z_data_sim
@@ -249,7 +557,7 @@ def _fit_frequency_sweep_lmfit(
 
     data_to_fit = data
     if freq_range:
-        freq_slice = myplt.find_slice(freq, freq_range)
+        freq_slice = utils.find_slice(freq, freq_range)
         freq_to_fit = freq[freq_slice]
         data_to_fit = data_to_fit[freq_slice]
     else:
@@ -304,14 +612,106 @@ def _fit_frequency_sweep_lmfit(
     fit_report['delay'] = par['delay'].value
     if port_type == 'notch':
         fit_report['phi0'] = par['phi0'].value
-    fit_report["Nph"] = get_photons_in_resonator(power, result.best_values ,freq_unit=freq_unit ,unit='dBm')
-    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='watt')
-    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values,freq_unit=freq_unit , unit='dBm')
+    fit_report["Nph"] = get_photons_in_resonator(power, result.best_values, port_type=port_type, freq_unit=freq_unit ,unit='dBm')
+    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit , unit='watt')
+    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit , unit='dBm')
     fit_report['fitresults'] = result
     
     if plot:
         plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
                                  plot_initial_guesses=plot_initial_guesses)
+    return fit_report
+
+def _fit_frequency_sweep_lmfit_nonlinear(
+        data,
+        freq,
+        freq_range,
+        power,
+        port_type,
+        user_guesses,
+        freq_unit,
+        plot,
+        plot_initial_guesses,
+        **kwargs
+        ):
+    # Define port type
+    if port_type == 'notch':
+        model_func = S21_resonator_notch_nonlinear
+    elif port_type == 'reflection':
+        model_func = S11_resonator_reflection_nonlinear
+    else:
+        print("This port type is not supported. Supported types are 'notch' or 'reflection'")
+
+    data_to_fit = data
+    if freq_range:
+        freq_slice = utils.find_slice(freq, freq_range)
+        freq_to_fit = freq[freq_slice]
+        data_to_fit = data_to_fit[freq_slice]
+    else:
+        freq_to_fit = freq
+    fr, kappa, a, alpha, delay = guess_resonator_params(freq_to_fit, data_to_fit, port_type=port_type)
+    fixed_params = []
+
+    # define the initial guesses for the parameters
+    guesses = {}
+    guesses['fr'] = fr
+    guesses['kappa'] = kappa
+    guesses['kappa_c'] = kappa/2
+    guesses['a'] = a
+    guesses['alpha']= alpha
+    guesses['delay'] = delay
+    if port_type == 'notch':
+        guesses['phi0'] = 0
+    guesses['kerr'] = 0
+
+    # overwrite the initial guesses with the ones provided by the user
+    for key, value in user_guesses.items():
+        guesses[key] = value
+
+    # create the lmfit.Parameters object and adjust some settings
+    params=lmfit.Parameters() # object
+    signature = inspect.signature(model_func)
+    parameter_names = [param.name for param in signature.parameters.values() if param.name not in ['fdrive']]
+    for name in parameter_names:
+        params.add(name, value=guesses[name], vary=True)
+    for name in fixed_params:
+        params[name].vary = False
+    params.add('kappa_i', expr='kappa-kappa_c')
+    params.add('Ql', expr='fr/(kappa)')
+    params.add('Qc', expr='fr/kappa_c')
+    params.add('Qi', expr='fr/(kappa-kappa_c)')
+
+    for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
+        params[param_name].min = 0
+    params['alpha'].min = -np.pi
+    params['alpha'].max = np.pi
+
+    # fit the data
+    model = lmfit.Model(model_func, independent_vars=['fdrive'])
+    result = model.fit(data_to_fit, params, fdrive=freq_to_fit, **kwargs)
+    par = result.params
+    fit_report = {}
+    fit_report["fr"] = par['fr'].value
+    for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
+        fit_report[param_name] = par[param_name].value
+        fit_report[param_name+'_err'] = par[param_name].stderr
+    fit_report['a'] = par['a'].value
+    fit_report['alpha'] = par['alpha'].value
+    fit_report['delay'] = par['delay'].value
+    if port_type == 'notch':
+        fit_report['phi0'] = par['phi0'].value
+    fit_report['kerr'] = par['kerr'].value
+    fit_report["Nph"] = get_photons_in_resonator(power, result.best_values, port_type=port_type, freq_unit=freq_unit ,unit='dBm')
+    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit , unit='watt')
+    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit , unit='dBm')
+    fit_report['fitresults'] = result
+
+    if plot:
+        fig, axes = plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
+                                 plot_initial_guesses=plot_initial_guesses)
+        return fit_report, (fig, axes)
+    
+    
     return fit_report
 
 def fit_power_sweep(
@@ -399,6 +799,10 @@ def fit_power_sweep(
     elif method == 'lmfit':
         return _fit_power_sweep_lmfit(data,freq,power,freq_range,power_range,attenuation,
                                       port_type,guesses,fit_report,freq_unit,plot,plot_initial_guesses,**kwargs)
+    elif method == 'lmfit_nonlinear':
+        fit_report['Kerr'] = np.array([np.nan]*n_powers)
+        return _fit_power_sweep_lmfit_nonlinear(data,freq,power,freq_range,power_range,attenuation,
+                                      port_type,guesses,fit_report,freq_unit,plot,plot_initial_guesses,**kwargs)
     else:
         raise ValueError(f"The method '{method}' is not supported. Use 'resonator_tools' or 'lmfit'")
     
@@ -411,7 +815,7 @@ def _fit_power_sweep_resonator_tools(
         attenuation,
         port_type,
         fit_report,
-        plot
+        plot=False,
         ):
     for k,pwr in enumerate(power):
         if power_range:
@@ -452,9 +856,12 @@ def _fit_power_sweep_resonator_tools(
         fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
         if port_type == 'notch':
             fit_report["phi0"] = port.fitresults["phi0"]
-        fit_report["Nph"][k] = port.get_photons_in_resonator(pwr - attenuation,unit='dBm')
-        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
-        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
+            power_scaling = 2 # for notch resonators, the input power is split into two paths, so we need to multiply the power by 2 to get the power in the resonator
+        elif port_type == 'reflection':
+            power_scaling = 1
+        fit_report["Nph"][k] = port.get_photons_in_resonator(pwr - attenuation,unit='dBm') / power_scaling
+        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt') * power_scaling
+        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm') * power_scaling
         fit_report["fr"][k] = port.fitresults["fr"]
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
@@ -469,9 +876,9 @@ def _fit_power_sweep_lmfit(
         port_type,
         user_guesses,
         fit_report,
-        freq_unit,
-        plot,
-        plot_initial_guesses,
+        freq_unit='Hz',
+        plot=False,
+        plot_initial_guesses=False,
         **kwargs
         ):
     for k,pwr in enumerate(power):
@@ -488,7 +895,7 @@ def _fit_power_sweep_lmfit(
 
         data_to_fit = data[k]
         if freq_range:
-            freq_slice = myplt.find_slice(freq, freq_range)
+            freq_slice = utils.find_slice(freq, freq_range)
             freq_to_fit = freq[freq_slice]
             data_to_fit = data_to_fit[freq_slice]
         else:
@@ -542,9 +949,9 @@ def _fit_power_sweep_lmfit(
         fit_report['delay'][k] = par['delay'].value
         if port_type == 'notch':
             fit_report['phi0'][k] = par['phi0'].value
-        fit_report["Nph"][k] = get_photons_in_resonator(pwr - attenuation, result.best_values, freq_unit=freq_unit ,unit='dBm')
-        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='watt')
-        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='dBm')
+        fit_report["Nph"][k] = get_photons_in_resonator(pwr - attenuation, result.best_values, port_type=port_type, freq_unit=freq_unit ,unit='dBm')
+        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='watt')
+        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='dBm')
         fit_report['fitresults'][k] = result
         
         if plot:
@@ -553,6 +960,97 @@ def _fit_power_sweep_lmfit(
                                      plot_initial_guesses=plot_initial_guesses)
             plt.show()
     return fit_report
+
+def _fit_power_sweep_lmfit_nonlinear(
+        data,
+        freq,
+        power,
+        freq_range,
+        power_range,
+        attenuation,
+        port_type,
+        user_guesses,
+        fit_report,
+        freq_unit='Hz',
+        plot=False,
+        plot_initial_guesses=False,
+        **kwargs
+        ):
+
+    results_linear = _fit_power_sweep_lmfit(data, freq, power, freq_range, power_range, attenuation,
+                                            port_type, user_guesses, fit_report, freq_unit)
+
+    # Define model function for nonlinear fit
+    if port_type == 'notch':
+        model_func = S21_resonator_notch_nonlinear
+    elif port_type == 'reflection':
+        model_func = S11_resonator_reflection_nonlinear
+    else:
+        print("This port type is not supported. Supported types are 'notch' or 'reflection'")
+
+    freq_slice = utils.find_slice(freq, freq_range)
+    freq_to_fit = np.tile(freq[freq_slice], (len(power), 1))
+    power_to_fit = np.tile(power, (len(freq[freq_slice]), 1)).T - attenuation
+    data_to_fit = data[:,freq_slice]
+
+    guesses = {}
+    linear_param_names = ['fr', 'kappa', 'kappa_c', 'a', 'alpha', 'delay']
+    if port_type == 'notch':
+        linear_param_names.append('phi0')
+    for name in linear_param_names:
+        guesses[name] = np.mean([result.params[name].value for result in results_linear['fitresults'] if result is not None])
+    guesses['Kerr'] = -1
+
+    # overwrite the initial guess for Kerr with the one provided by the user
+    if 'Kerr' in user_guesses.keys():
+        guesses['Kerr'] = user_guesses['Kerr']
+
+    fixed_params = ['a', 'alpha', 'delay']
+
+    # create the lmfit.Parameters object and adjust some settings
+    params=lmfit.Parameters() # object
+    signature = inspect.signature(model_func)
+    parameter_names = [param.name for param in signature.parameters.values() if param.name not in ['fdrive', 'power']]
+    for name in parameter_names:
+        params.add(name, value=guesses[name], vary=True)
+    for name in fixed_params:
+        params[name].vary = False
+    params.add('kappa_i', expr='kappa-kappa_c')
+    params.add('Ql', expr='fr/(kappa)')
+    params.add('Qc', expr='fr/kappa_c')
+    params.add('Qi', expr='fr/(kappa-kappa_c)')
+
+    for param_name in ['fr', 'kappa', 'kappa_c', 'a']:
+        params[param_name].min = 0
+    params['alpha'].min = -np.pi
+    params['alpha'].max = np.pi
+    
+    # fit the data
+    model = lmfit.Model(model_func, independent_vars=['fdrive', 'power'])
+    result = model.fit(data_to_fit, params, fdrive=freq_to_fit, power=power_to_fit, **kwargs)
+    par = result.params
+
+    fit_report["fr"] = par['fr'].value
+    for param_name in ['kappa_i', 'kappa_c', 'kappa', 'Qi', 'Qc', 'Ql']: 
+        fit_report[param_name] = par[param_name].value
+        fit_report[param_name+'_err'] = par[param_name].stderr
+    fit_report['a'] = par['a'].value
+    fit_report['alpha'] = par['alpha'].value
+    fit_report['delay'] = par['delay'].value
+    if port_type == 'notch':
+        fit_report['phi0'] = par['phi0'].value
+    fit_report['Kerr'] = par['Kerr'].value
+    fit_report['Nph'] = _get_photon_number_nonlinear(fdrive=freq_to_fit, power=power_to_fit, fr=par['fr'].value, kappa=par['kappa'].value, kappa_c=par['kappa_c'].value, Kerr=par['Kerr'].value, port_type='notch')
+    # fit_report["Nph"] = get_photons_in_resonator(pwr - attenuation, result.best_values, port_type=port_type, freq_unit=freq_unit ,unit='dBm')
+    fit_report["single_photon_W"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='watt')
+    fit_report["single_photon_dBm"] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='dBm')
+    fit_report['fitresults'] = result
+    
+    if plot:
+        plot_resonator_fit_lmfit_nonlinear(freq_to_fit, power_to_fit+attenuation, data_to_fit, result, freq_unit=freq_unit)
+        plt.show()
+    return fit_report
+
 
 def fit_field_sweep(
         data,
@@ -696,9 +1194,12 @@ def _fit_field_sweep_resonator_tools(
         fit_report["Ql_err"][k] = port.fitresults["Ql_err"]
         if port_type == 'notch':
             fit_report["phi0"] = port.fitresults["phi0"]
-        fit_report["Nph"][k] = port.get_photons_in_resonator(power,unit='dBm')
-        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt')
-        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm')
+            power_scaling = 2 # for notch resonators, the input power is split into two paths, so we need to multiply the power by 2 to get the power in the resonator
+        elif port_type == 'reflection':
+            power_scaling = 1
+        fit_report["Nph"][k] = port.get_photons_in_resonator(power,unit='dBm') / power_scaling
+        fit_report["single_photon_W"][k] = port.get_single_photon_limit(unit='watt') * power_scaling
+        fit_report["single_photon_dBm"][k] = port.get_single_photon_limit(unit='dBm') * power_scaling
         fit_report["fr"][k] = port.fitresults["fr"]
         fit_report['fitresults'][k] = port.fitresults
     return fit_report
@@ -733,7 +1234,7 @@ def _fit_field_sweep_lmfit(
         else:
             print("This port type is not supported. Supported types are 'notch' or 'reflection'")
         data_to_fit = data[k]
-        freq_slice = myplt.find_slice(freq, [cfreq-span/2,cfreq+span/2])
+        freq_slice = utils.find_slice(freq, [cfreq-span/2,cfreq+span/2])
         freq_to_fit = freq[freq_slice]
         data_to_fit = data_to_fit[freq_slice]
 
@@ -784,9 +1285,9 @@ def _fit_field_sweep_lmfit(
         fit_report['a'][k] = par['a'].value
         fit_report['alpha'][k] = par['alpha'].value
         fit_report['delay'][k] = par['delay'].value
-        fit_report["Nph"][k] = get_photons_in_resonator(power, result.best_values, freq_unit='Hz' ,unit='dBm')
-        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='watt')
-        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, freq_unit=freq_unit, unit='dBm')
+        fit_report["Nph"][k] = get_photons_in_resonator(power, result.best_values, port_type=port_type, freq_unit='Hz' ,unit='dBm')
+        fit_report["single_photon_W"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='watt')
+        fit_report["single_photon_dBm"][k] = get_single_photon_limit(result.best_values, port_type=port_type, freq_unit=freq_unit, unit='dBm')
         fit_report['fitresults'][k] = result
         
         if plot:
@@ -991,12 +1492,12 @@ def plot_kappavsP(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',*
     else:
         ax.semilogx()
     kappa_scaling = get_frequency_scaling(freq_unit)/1e6
-    ax.errorbar(fit['Nph'],fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
-    ax.errorbar(fit['Nph'],fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
-    ax.errorbar(fit['Nph'],fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label=r'$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label=r'$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(fit['Nph'],fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label=r'$\kappa$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('photon number')
-    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.set_ylabel(r'$\kappa/2\pi$ (MHz)')
     ax.grid()
     fig.suptitle(label)
     fig.tight_layout()
@@ -1088,12 +1589,12 @@ def plot_kappavsB(fit_report,field,label='',log_y=True,threshold=None,freq_unit=
     if log_y:
         ax.semilogy()
     kappa_scaling = get_frequency_scaling(freq_unit)/1e6
-    ax.errorbar(field*1e3,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
-    ax.errorbar(field*1e3,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
-    ax.errorbar(field*1e3,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label=r'$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label=r'$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(field*1e3,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label=r'$\kappa$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('Magnetic field (mT)')
-    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.set_ylabel(r'$\kappa/2\pi$ (MHz)')
     ax.grid()
     fig.suptitle(label)
     fig.tight_layout()
@@ -1185,12 +1686,12 @@ def plot_kappavsfr(fit_report,label='',log_y=True,threshold=None,freq_unit='Hz',
         ax.semilogy()
     fr_scaling = get_frequency_scaling(freq_unit)/1e9
     kappa_scaling = get_frequency_scaling(freq_unit)/1e6
-    ax.errorbar(frs*fr_scaling,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label='$\kappa_{i}$',fmt = "o",**kwargs)
-    ax.errorbar(frs*fr_scaling,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label='$\kappa_{c}$',fmt = "o",**kwargs)
-    ax.errorbar(frs*fr_scaling,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label='$\kappa$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa_i']*kappa_scaling,yerr=fit['kappa_i_err']*kappa_scaling,label=r'$\kappa_{i}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa_c']*kappa_scaling,yerr=fit['kappa_c_err']*kappa_scaling,label=r'$\kappa_{c}$',fmt = "o",**kwargs)
+    ax.errorbar(frs*fr_scaling,fit['kappa']*kappa_scaling,yerr=fit['kappa_err']*kappa_scaling,label=r'$\kappa$',fmt = "o",**kwargs)
     ax.legend()
     ax.set_xlabel('Magnetic field (mT)')
-    ax.set_ylabel('$\kappa/2\pi$ (MHz)')
+    ax.set_ylabel(r'$\kappa/2\pi$ (MHz)')
     ax.grid()
     fig.suptitle(label)
     fig.tight_layout()
@@ -1438,7 +1939,7 @@ class Parameters:
         param.nu = nu
 
     def description(param):
-        return (f'Parameters \nQi = {param.Qi}\nQc = {param.Qc}\nQl = {param.Ql}\nQi = {param.Qi}\nerr_Qc = {param.err_Qc}\nerr_Ql = {param.err_Ql}\nfr_res = {param.fr_res}\npower_at = {param.power_at}\nnu = {param.nu}')
+        return (rf'Parameters \nQi = {param.Qi}\nQc = {param.Qc}\nQl = {param.Ql}\nQi = {param.Qi}\nerr_Qc = {param.err_Qc}\nerr_Ql = {param.err_Ql}\nfr_res = {param.fr_res}\npower_at = {param.power_at}\nnu = {param.nu}')
 
 def fit_function_Pscan_notch(freq,cData,power,fr_in,fr_out,att=80,plot_var=False,err_threshold=0.2):
     port1 = circuit.notch_port()
