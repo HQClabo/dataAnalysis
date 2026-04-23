@@ -71,7 +71,7 @@ class ChargeSensorAnalysis(DataSet):
         plt.figure()
         plt.plot(self.xdata, self.ydata, '.', color='k')
         plt.xlabel("Gate voltage (V)")
-        plt.ylabel(self.ydata_param_name)
+        plt.ylabel(f"{self.ydata_param_name} ({self.get_dependent_parameter_by_name('Idrain')['paramspec'].unit})")
 
         plt.plot(self.xdata, self.model.eval(params=self.fit_result.params, Vg=self.xdata), '-', color='red')
         plt.scatter(self.V_max_deriv, self.model.eval(params=self.fit_result.params, Vg=self.V_max_deriv), color='red')
@@ -107,7 +107,7 @@ class ChargeSensorAnalysis(DataSet):
         plt.figure()
         plt.plot(self.xdata, self.ydata, '.', color='k', label='Data')
         plt.xlabel("Gate voltage (V)")
-        plt.ylabel(self.ydata_param_name)
+        plt.ylabel(f"{self.ydata_param_name} ({self.get_dependent_parameter_by_name('Idrain')['paramspec'].unit})")
 
         plt.plot(self.xdata, self.y_derivative, '.', color='red', label='Derivative')
         plt.axvline(x = self.V_max_deriv, ls="-", color = 'red')
