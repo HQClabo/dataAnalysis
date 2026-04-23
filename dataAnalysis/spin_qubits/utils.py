@@ -36,9 +36,9 @@ class ChargeSensorAnalysis(DataSet):
 
     def find_max_derivative_point(self, ydata_param_name, method='numeric', shoulder='left'):
         if method == 'numeric':
-            self._find_max_derivative_point_numeric(ydata_param_name, shoulder=shoulder)
+            return self._find_max_derivative_point_numeric(ydata_param_name, shoulder=shoulder)
         elif method == 'lmfit':
-            self._find_max_derivative_point_lmfit(ydata_param_name, shoulder=shoulder)
+            return self._find_max_derivative_point_lmfit(ydata_param_name, shoulder=shoulder)
 
 
     def _find_max_derivative_point_lmfit(self, ydata_param_name, shoulder='left'):
