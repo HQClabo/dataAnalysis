@@ -746,8 +746,10 @@ class DataSet():
 
 
 class ConcatenatedDataSet(DataSet):
-    def __init__(self, exp, run_id:list, outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, station=None):
-        self.run_id = run_id
+    def __init__(self, exp, run_id_first:int, run_id_last:int=None, num_runs:int=None, outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, station=None):
+        self.run_id_first = run_id_first
+        self.run_id_last = run_id_last
+        self.num_runs = num_runs
         self.exp = exp
         self.conn = self.exp.conn
         self.station = station
@@ -755,9 +757,15 @@ class ConcatenatedDataSet(DataSet):
         self.outer_param_name = outer_param_name if outer_param_name!=None else "outer_param"
         self.outer_param_unit = outer_param_unit if outer_param_unit!=None else ""
     
-        assert isinstance(run_id, list) and len(run_id)==2, "Error: run_id must be an integer or a list of two elements [start_run_id, end_run_id]."
-
-        assert run_id[1] - run_id[0] + 1 == len(outer_param_values), "The number of run ids to concatenate and the length of the outer parameter array must be the same."
+        if num_runs != None: 
+            assert run_id_last == None, "Error: provide either run_id_last OR num_runs"
+            self.run_id_last = run_id_first + num_runs - 1
+        if run_id_last != None:
+            assert num_runs == None, "Error: provide either run_id_last OR num_runs"
+            self.num_runs = run_id_last - run_id_first + 1
+        assert self.num_runs == len(outer_param_values), "The number of run ids to concatenate and the length of the outer parameter array must be the same."
+        
+        self.run_id = [self.run_id_first, self.run_id_last] # for printing purposes
 
         self.extract_data()
 
@@ -771,7 +779,7 @@ class ConcatenatedDataSet(DataSet):
 
         #############
         # Read inner loop parameter and num/names of dependent parameters from the first run id
-        rid = self.run_id[0]
+        rid = self.run_id_first
         dataset = qc.load_by_id(rid, self.exp.conn)
         df = dataset.to_pandas_dataframe()
         interdeps = dataset.description.interdeps.dependencies
@@ -805,7 +813,7 @@ class ConcatenatedDataSet(DataSet):
 
         ##############
         # Concatenate the data
-        for rid in range(self.run_id[0]+1, self.run_id[1]+1):
+        for rid in range(self.run_id_first+1, self.run_id_last+1):
             dataset = qc.load_by_id(rid, self.exp.conn)
             df = dataset.to_pandas_dataframe()
             interdeps = dataset.description.interdeps.dependencies
