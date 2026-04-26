@@ -308,7 +308,7 @@ def guess_resonator_params(f, data, fraction=0.1, port_type='notch'):
     last = -int(len(f)//(1/fraction))
     fit1 = linregress(f[:first], phase[:first])
     fit2 = linregress(f[last:], phase[last:])
-    delay = -(fit1.slope + fit2.slope) / 2 / (2*np.pi)
+    delay = np.float64(-(fit1.slope + fit2.slope) / 2 / (2*np.pi))
     alpha = (phase[0] + 2*np.pi*delay*f[0] - phase_offset + np.pi) % (2*np.pi) - np.pi
     return fr, kappa, a, alpha, delay
 
