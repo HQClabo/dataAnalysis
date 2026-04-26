@@ -359,7 +359,7 @@ def get_photons_in_resonator(power, fitresults, port_type='notch', freq_unit='Hz
     fr = fitresults['fr']
     k_c = 2*np.pi*fitresults['kappa_c']
     k = 2*np.pi*fitresults['kappa']
-    nph = power_watts/const.h*fr * 4.*k_c/k**2 / freq_scaling**2
+    nph = power_watts/(const.h*fr) * 4.*k_c/k**2 / freq_scaling**2
     if port_type=='notch':
         # for notch resonators, the input power is split into two paths, so we need to divide the number of photons by 2
         nph = nph / 2
@@ -618,8 +618,9 @@ def _fit_frequency_sweep_lmfit(
     fit_report['fitresults'] = result
     
     if plot:
-        plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
+        fig, axes = plot_resonator_fit_lmfit(freq_to_fit, data_to_fit, result, freq_unit=freq_unit,
                                  plot_initial_guesses=plot_initial_guesses)
+        return fit_report, fig, axes
     return fit_report
 
 def _fit_frequency_sweep_lmfit_nonlinear(
