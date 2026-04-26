@@ -120,7 +120,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         # Loop over angles
         for angle_idx, _ in enumerate(self.angle):
             peak_idxs, _ = scipy.signal.find_peaks(data[low_idx:high_idx, angle_idx], **scipy_kwargs)
-            peak_freqs = self.freq[peak_idxs]
+            peak_freqs = self.freq[peak_idxs + low_idx]
             # Write frequencies in results dictionary
             for freq_idx, peak_to_save_idx in zip(range(1, num_freqs+1), peaks_to_save):
                 try:
@@ -510,6 +510,8 @@ class GTensorCharacterization:
             
 
         #----------------------------- Fit -----------------------------
+        
+        #fit_result, model = _fit_g_factors_with_B_offsets(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, **kwargs) # Fit taking into account the offsets
         fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, **kwargs)
         self.fit_result = fit_result
         self.model = model
@@ -763,24 +765,23 @@ def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zet
 
     return g_factor_array
 
-
 def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits_dict={}, method='leastsq'):
     params = lmfit.Parameters()
 
     default_guesses = {
-        'gx': 0.6,
+        'gx': 0.10,
         'gy': 0.35,
-        'gz': 11.0,
+        'gz': 10.0,
         'phi': 0,
-        'theta': 0,
+        'theta': 1.5,
         'zeta': 0,
     }
     default_limits = {
         'gx': (0, 1),
         'gy': (0, 1),
-        'gz': (5, 30),
+        'gz': (3, 30),
         'phi': (-180, 180),
-        'theta': (0, 90),
+        'theta': (0, 180),
         'zeta': (-180, 180),
     }
 
@@ -807,3 +808,58 @@ def plot_polar(angles_rad, r, style='data', fig=None, ax=None, label=None, plot_
         legend.set_frame_on(False)
 
     return fig, ax, plot
+
+### Under Construction by Wonjin ###
+# Trying to build a fitting model that takes into account the Bx, By, Bz offsets. 
+
+def model_g_factor_lab_frame_with_B_offsets(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zeta, Bx_offset, By_offset, Bz_offset):
+    """
+    Model for the g factor in the lab frame, given a certain applied magnetic field.
+    """
+    g_factor_array = []
+    for Bx, By, Bz in zip(Bx_lab, By_lab, Bz_lab):
+        B_vector = np.vstack((Bx - Bx_offset, By - By_offset, Bz - Bz_offset))
+        g_matrix_lab_frame = g_tensor_g_frame_to_lab_frame(gx, gy, gz, phi, theta, zeta)
+        gB_product = np.dot(g_matrix_lab_frame, B_vector)
+        B_norm = np.linalg.norm(B_vector)
+        gB_norm = np.linalg.norm(gB_product)
+        g_factor_array.append(gB_norm/B_norm)
+    g_factor_array = np.array(g_factor_array)
+
+    return g_factor_array
+
+def _fit_g_factors_with_B_offsets(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits_dict={}, method='leastsq'):
+    params = lmfit.Parameters()
+
+    default_guesses = {
+        'gx': 0.10,
+        'gy': 0.35,
+        'gz': 10.0,
+        'phi': 0,
+        'theta': 1.5,
+        'zeta': 0,
+        'Bx_offset':0,
+        'By_offset':0,
+        'Bz_offset':0
+    }
+    default_limits = {
+        'gx': (0, 1),
+        'gy': (0, 1),
+        'gz': (3, 30),
+        'phi': (-180, 180),
+        'theta': (0, 180),
+        'zeta': (-180, 180),
+        'Bx_offset':(-300e-6, 300e-6),
+        'By_offset':(-300e-6, 300e-6),
+        'Bz_offset':(-300e-6, 300e-6),
+    }
+
+    for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta', 'Bx_offset', 'By_offset', 'Bz_offset']:
+        guess = guesses_dict[param_name] if param_name in guesses_dict.keys() else default_guesses[param_name]
+        limits = limits_dict[param_name] if param_name in limits_dict.keys() else default_limits[param_name]
+        par = lmfit.Parameter(param_name, value=guess, min=limits[0], max=limits[1])
+        params[param_name] = par
+
+    model = lmfit.Model(model_g_factor_lab_frame_with_B_offsets, independent_vars=["Bx_lab", "By_lab", "Bz_lab"])
+    fit_result = model.fit(g_factor_lab, params, Bx_lab=Bx_lab, By_lab=By_lab, Bz_lab=Bz_lab, method=method)
+    return fit_result, model

@@ -32,46 +32,103 @@ class StandardGateSweepAnalysis(DataSet):
     A class to analyze voltage traces taken while sweeping gate voltage (Vg),
     using threshold crossing and histogram-based techniques to extract tau and Gamma.
     """
-    def __init__(self, exp, run_id=None, station=None, save_path=None, diff_guess=0.02,charge_state='low',time_slice=0.5):
-        
+
+    def __init__(self, exp, run_id=None, station=None, save_path=None,
+                 diff_guess=0.02, charge_state='low', time_slice=0.5,
+                 global_threshold_init=None):
+        """
+        Parameters
+        ----------
+        diff_guess : float
+            Rough guess for the voltage separation between the two charge states.
+        charge_state : {'low', 'high'}
+            Defines which level corresponds to the occupied state.
+        time_slice : float
+            Time bin size used for cumulant calculation.
+        global_threshold_init : float or None
+            Optional externally provided initial global threshold.
+            If not None, it will be used to define an initial pair of means.
+        """
+
         super().__init__(exp=exp, run_id=run_id, station=station)
+
+        # Independent / dependent data from the DataSet
         self.time = self.independent_parameters['y']['values']
         self.gate_voltage = self.independent_parameters['x']['values']
+        # CS_values shape: (n_gate, n_time)
         self.CS_values = self.dependent_parameters['param_0']['values'].T
+
         self.save_path = save_path
-        self.diff_guess = diff_guess # Two charge sensor state voltage difference 
-        self.run_id = run_id 
+        self.diff_guess = diff_guess
+        self.run_id = run_id
         self.time_slice = time_slice
-        self.charge_state = charge_state # Charge state 'high' if voltage level is high level for hall occupation. 'low' for no hall occupation
-        
-        if type(save_path) == str:
-            os.makedirs(save_path,exist_ok = True)
-            
+        self.charge_state = charge_state
+
+        # Global two-level model obtained from telegraph-heavy regions
+        self.global_threshold = global_threshold_init  # scalar threshold
+        self.global_means = None                      # np.array([mu_low, mu_high])
+
+        # If the user provided a global_threshold_init, define an initial pair of means
+        if global_threshold_init is not None:
+            self.global_means = np.array([
+                global_threshold_init - 0.5 * diff_guess,
+                global_threshold_init + 0.5 * diff_guess
+            ])
+
+        if isinstance(save_path, str):
+            os.makedirs(save_path, exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # Public analysis methods
+    # ------------------------------------------------------------------
+
     def extract_taus(self, plot=False):
+        """
+        Run the full analysis over the gate sweep:
+        1) Build a global 2-state model (global means + threshold) from
+           telegraph-rich traces using a pooled GMM.
+        2) For each gate, estimate a threshold using this global model as
+           initialization / fallback.
+        3) Detect events, compute tau_in/out, Gamma, and cumulants.
+        """
+
         results = []
 
+        # Step 1: build global model from entire sweep
+        self._init_global_threshold()
+        if self.global_threshold is not None and self.global_means is not None:
+            print(f"[INFO] Global threshold initialized at {self.global_threshold:.4g}, "
+                  f"global means = {self.global_means}")
+        else:
+            print("[WARN] Global threshold could not be initialized; "
+                  "falling back to local estimation only.")
+
+        # Step 2: loop over all gate voltages
         for idx in range(len(self.CS_values)):
             time = self.time
             gate_voltage = self.gate_voltage[idx]
             CS_values = self.CS_values[idx]
-            
+
             threshold, means, covs, weights, use_gmm = self._estimate_threshold(CS_values)
             rise_times, fall_times = self._detect_events(time, CS_values, threshold, means)
-            
             tau_in, tau_out = self._compute_taus(rise_times, fall_times)
-            
 
             if len(tau_in) > 5:
-                stats = self._summarize_taus(tau_in, tau_out, gate_voltage,fall_times)
+                stats = self._summarize_taus(tau_in, tau_out, gate_voltage, fall_times)
+                # Store the threshold used for this gate, useful for debugging
+                stats["threshold"] = threshold
                 results.append(stats)
 
-            if plot and type(self.save_path) == str:
+            if plot and isinstance(self.save_path, str):
                 self._plot_trace(time, CS_values, threshold, rise_times, fall_times,
                                  means, covs, weights, use_gmm, gate_voltage, idx)
 
         self.df_results = pd.DataFrame(results)
-        if type(self.save_path) == str:
-            self.df_results.to_csv(os.path.join(self.save_path, f"standard_tau_summary_Run{self.run_id}.csv"), index=False)
+        if isinstance(self.save_path, str):
+            self.df_results.to_csv(
+                os.path.join(self.save_path, f"standard_tau_summary_Run{self.run_id}.csv"),
+                index=False
+            )
         return self.df_results
 
     def plot_gamma_vs_gate_voltage(self):
@@ -87,8 +144,10 @@ class StandardGateSweepAnalysis(DataSet):
         gamma_out_std = df['Gamma_out_std'] / 1e3
 
         plt.figure(figsize=(10, 6))
-        plt.errorbar(Vg, gamma_in, yerr=gamma_in_std, fmt='o-', capsize=4, label=r'$\Gamma_{\mathrm{in}}$')
-        plt.errorbar(Vg, gamma_out, yerr=gamma_out_std, fmt='s--', capsize=4, label=r'$\Gamma_{\mathrm{out}}$')
+        plt.errorbar(Vg, gamma_in, yerr=gamma_in_std, fmt='o-', capsize=4,
+                     label=r'$\Gamma_{\mathrm{in}}$')
+        plt.errorbar(Vg, gamma_out, yerr=gamma_out_std, fmt='s--', capsize=4,
+                     label=r'$\Gamma_{\mathrm{out}}$')
         plt.xlabel('Gate Voltage (mV)', fontsize=12)
         plt.ylabel(r'$\Gamma$ (kHz)', fontsize=12)
         plt.title(r'Tunneling Rate $\Gamma$ vs Gate Voltage', fontsize=14)
@@ -96,20 +155,24 @@ class StandardGateSweepAnalysis(DataSet):
         plt.legend()
         plt.tight_layout()
         plt.show()
-    
+
     def plot_tau_hist(self, Vg_index=0, bins=50):
         """
         Plot histograms of tau_in and tau_out for a given gate voltage index.
-        
-        Parameters:
-        Vg_index (int): Index of the gate voltage point in df_results to plot.
-        bins (int): Number of histogram bins.
+
+        Parameters
+        ----------
+        Vg_index : int
+            Index of the gate voltage point in df_results to plot.
+        bins : int
+            Number of histogram bins.
         """
         if not hasattr(self, 'df_results'):
             raise RuntimeError("Please run extract_taus() first to compute tau/Gamma values.")
-            
+
         if Vg_index >= len(self.df_results):
-            raise IndexError(f"Vg_index {Vg_index} is out of bounds for result length {len(self.df_results)}.")
+            raise IndexError(f"Vg_index {Vg_index} is out of bounds for "
+                             f"result length {len(self.df_results)}.")
 
         row = self.df_results.iloc[Vg_index]
         tau_in = row['tau_in']
@@ -137,34 +200,168 @@ class StandardGateSweepAnalysis(DataSet):
 
         plt.tight_layout()
         plt.show()
-        
+
         print(f"tau_in: {np.mean(tau_in)} and tau_out: {np.mean(tau_out)}")
 
-    def _estimate_threshold(self, voltage):
-        diff_guess = self.diff_guess
+    # ------------------------------------------------------------------
+    # Global GMM initialization
+    # ------------------------------------------------------------------
+
+    def _init_global_threshold(self):
+        """
+        Initialize a global threshold and global means by running a 2-component
+        GMM on traces where telegraph behavior is likely strongest.
+
+        Heuristic:
+        - For each gate trace, compute mean and std.
+        - Select traces with large std (top 30%) and mean in the middle range.
+        - Pool those voltages and run a 2-component GMM.
+        - Store resulting means and threshold for later use.
+
+        If global_threshold was already provided in __init__, this step
+        is skipped (unless you explicitly want to override it).
+        """
+        # If the user already provided a global threshold, do not override it
+        if self.global_threshold is not None and self.global_means is not None:
+            return
+
+        n_gate = len(self.CS_values)
+        means = np.zeros(n_gate)
+        stds = np.zeros(n_gate)
+
+        # Compute mean and std for each gate trace
+        for i, trace in enumerate(self.CS_values):
+            means[i] = np.mean(trace)
+            stds[i] = np.std(trace)
+
+        # If everything is flat, do nothing
+        if np.allclose(stds, 0):
+            return
+
+        # Select traces with large fluctuations (top 30% in std)
+        std_thresh = np.quantile(stds, 0.7)
+
+        # Define "middle" range of means (between global min and max)
+        mean_min, mean_max = np.min(means), np.max(means)
+        mean_range = mean_max - mean_min
+        if mean_range <= 0:
+            return
+
+        mid_low = mean_min + 0.2 * mean_range
+        mid_high = mean_min + 0.8 * mean_range
+
+        candidate_mask = (stds > std_thresh) & (means > mid_low) & (means < mid_high)
+
+        if np.any(candidate_mask):
+            # Use only traces which are likely telegraph-heavy
+            selected_vals = self.CS_values[candidate_mask].reshape(-1, 1)
+        else:
+            # Fallback: use all data if no good candidate found
+            selected_vals = self.CS_values.reshape(-1, 1)
+
         try:
             gmm = GaussianMixture(n_components=2, random_state=0)
-            gmm.fit(voltage.reshape(-1, 1))
+            gmm.fit(selected_vals)
+            mu = gmm.means_.flatten()
+            mu.sort()  # enforce ordering: low < high
+
+            self.global_means = mu
+            self.global_threshold = float(np.mean(mu))
+
+            # Optionally update diff_guess based on global separation
+            self.diff_guess = float(np.abs(mu[1] - mu[0]))
+
+        except Exception as e:
+            print(f"[WARN] Global GMM failed in _init_global_threshold: {e}")
+            self.global_means = None
+            self.global_threshold = None
+
+    # ------------------------------------------------------------------
+    # Threshold estimation and event detection
+    # ------------------------------------------------------------------
+
+    def _estimate_threshold(self, voltage):
+        """
+        Estimate threshold between two charge states for a single trace.
+
+        Uses a global 2-state GMM (self.global_means, self.global_threshold)
+        as initialization / fallback when available.
+
+        Returns
+        -------
+        threshold : float
+            Voltage threshold separating the two states.
+        means : np.ndarray
+            Means of the two states (sorted low -> high).
+        covs : np.ndarray
+            Standard deviations of the two Gaussians.
+        weights : np.ndarray
+            Mixture weights (if available).
+        use_gmm : bool
+            True if local GMM was used successfully, False otherwise.
+        """
+        diff_guess = self.diff_guess
+        v = voltage.reshape(-1, 1)
+
+        # ---- Try local 2-component GMM with global initialization if available ----
+        try:
+            if self.global_means is not None:
+                means_init = self.global_means.reshape(-1, 1)
+                gmm = GaussianMixture(
+                    n_components=2,
+                    random_state=0,
+                    means_init=means_init
+                )
+            else:
+                gmm = GaussianMixture(n_components=2, random_state=0)
+
+            gmm.fit(v)
             means = gmm.means_.flatten()
             covs = np.sqrt(gmm.covariances_.flatten())
             weights = gmm.weights_
-            threshold = np.mean(means)
-            mean_separation = np.abs(np.diff(means))[0]
+
+            # Sort components by mean value
+            sort_idx = np.argsort(means)
+            means = means[sort_idx]
+            covs = covs[sort_idx]
+            weights = weights[sort_idx]
+
+            threshold = float(np.mean(means))
+            mean_separation = float(np.abs(np.diff(means))[0])
+
+            # If separation is too small, consider this GMM unreliable
             if mean_separation < 0.5 * diff_guess:
                 raise ValueError("GMM means too close")
+
             return threshold, means, covs, weights, True
-        except:
-            hist, bins = np.histogram(voltage, bins=100, density=True)
+
+        except Exception:
+            # ---- Fallback path: use global threshold if available ----
+            v_flat = v.flatten()
+
+            if self.global_threshold is not None and self.global_means is not None:
+                # Use globally determined two-level structure
+                means = np.array(self.global_means)
+                covs = np.array([np.std(v_flat)] * 2)
+                weights = np.array([0.5, 0.5])  # dummy weights
+                threshold = float(self.global_threshold)
+                return threshold, means, covs, weights, False
+
+            # ---- Final fallback: local single-Gaussian heuristic ----
+            hist, bins = np.histogram(v_flat, bins=100, density=True)
             bin_centers = 0.5 * (bins[:-1] + bins[1:])
+
             def single_gaussian(x, mu, sigma, amp):
                 return amp * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
-            guess = [np.mean(voltage), np.std(voltage), np.max(hist)]
+
+            guess = [np.mean(v_flat), np.std(v_flat), np.max(hist)]
             try:
                 popt, _ = curve_fit(single_gaussian, bin_centers, hist, p0=guess)
                 base_level = popt[0]
-            except:
-                base_level = np.median(voltage)
-            if base_level < np.mean(voltage):
+            except Exception:
+                base_level = np.median(v_flat)
+
+            if base_level < np.mean(v_flat):
                 threshold = base_level + 0.5 * diff_guess
                 means = np.array([base_level, base_level + diff_guess])
                 weights = np.array([1, 0])
@@ -172,10 +369,14 @@ class StandardGateSweepAnalysis(DataSet):
                 threshold = base_level - 0.5 * diff_guess
                 means = np.array([base_level - diff_guess, base_level])
                 weights = np.array([0, 1])
-            covs = np.array([np.std(voltage)] * 2)
-            return threshold, means, covs, weights, False
+
+            covs = np.array([np.std(v_flat)] * 2)
+            return float(threshold), means, covs, weights, False
 
     def _detect_events(self, time, voltage, threshold, means):
+        """
+        Detect rising and falling edges based on a hysteretic threshold.
+        """
         hysteresis_fraction = 0.2
         low_level, high_level = np.min(means), np.max(means)
         span = high_level - low_level
@@ -193,22 +394,31 @@ class StandardGateSweepAnalysis(DataSet):
                 state_low = True
 
         return time[rise_indices], time[fall_indices]
-    
-    def _cumulants(self,time, fall_time, time_slice = 0.1):
-        
+
+    # ------------------------------------------------------------------
+    # Statistics / summaries
+    # ------------------------------------------------------------------
+
+    def _cumulants(self, time, fall_time, time_slice=0.1):
+        """
+        Compute first and second cumulants of counts in bins of size time_slice.
+        """
         bins_ = np.arange(0, np.max(time) + time_slice, time_slice)
-        counts_, _ = np.histogram(fall_time, bins = bins_)
-        
+        counts_, _ = np.histogram(fall_time, bins=bins_)
+
         c1 = np.mean(counts_)
         c2 = np.var(counts_)
-        
+
         return c1, c2
-    
+
     def _compute_taus(self, rise_times, fall_times):
-        
+        """
+        Compute tau_in and tau_out from rise/fall times.
+        """
+
         if len(rise_times) < 2 or len(fall_times) < 2:
             return [], []
-        
+
         min_len = min(len(rise_times), len(fall_times))
         rise_times = rise_times[:min_len]
         fall_times = fall_times[:min_len]
@@ -219,17 +429,21 @@ class StandardGateSweepAnalysis(DataSet):
         else:
             tau_out = rise_times - fall_times
             tau_in = fall_times[1:] - rise_times[:-1]
-            
-        if self.charge_state == 'low':
-            return tau_in,tau_out
-        else:
-            return tau_out,tau_in
 
-    def _summarize_taus(self, tau_in, tau_out, Vg,fall_time):
-        
+        if self.charge_state == 'low':
+            return tau_in, tau_out
+        else:
+            return tau_out, tau_in
+
+    def _summarize_taus(self, tau_in, tau_out, Vg, fall_time):
+        """
+        Compute mean / std / counts for tau_in/out and corresponding Gamma.
+        Also compute cumulants C1, C2 from the event times.
+        """
+
         tau_in_arr = np.array(tau_in)
         tau_out_arr = np.array(tau_out)
-                
+
         tau_in_mean = np.mean(tau_in_arr) if len(tau_in_arr) > 0 else np.nan
         tau_out_mean = np.mean(tau_out_arr) if len(tau_out_arr) > 0 else np.nan
         tau_in_std = np.std(tau_in_arr) if len(tau_in_arr) > 0 else 0
@@ -240,11 +454,12 @@ class StandardGateSweepAnalysis(DataSet):
         gamma_in = 1 / tau_in_mean if tau_in_mean > 0 else np.nan
         gamma_out = 1 / tau_out_mean if tau_out_mean > 0 else np.nan
 
-        gamma_in_std = (tau_in_std / (tau_in_mean ** 2 * np.sqrt(n_in))) if tau_in_mean > 0 and n_in > 0 else np.nan
-        gamma_out_std = (tau_out_std / (tau_out_mean ** 2 * np.sqrt(n_out))) if tau_out_mean > 0 and n_out > 0 else np.nan
-        
-        c1,c2 = self._cumulants(self.time, fall_time,time_slice=self.time_slice) 
+        gamma_in_std = (tau_in_std / (tau_in_mean ** 2 * np.sqrt(n_in))) \
+            if tau_in_mean > 0 and n_in > 0 else np.nan
+        gamma_out_std = (tau_out_std / (tau_out_mean ** 2 * np.sqrt(n_out))) \
+            if tau_out_mean > 0 and n_out > 0 else np.nan
 
+        c1, c2 = self._cumulants(self.time, fall_time, time_slice=self.time_slice)
 
         return {
             "GateVoltage": Vg,
@@ -262,43 +477,67 @@ class StandardGateSweepAnalysis(DataSet):
             "tau_out": tau_out,
             "c1": c1,
             "c2": c2
-            }
+        }
+
+    # ------------------------------------------------------------------
+    # Plotting helpers
+    # ------------------------------------------------------------------
 
     def _plot_trace(self, time, voltage, threshold, rise_times, fall_times,
-                     means, covs, weights, use_gmm, Vg, idx):
+                    means, covs, weights, use_gmm, Vg, idx):
+        """
+        Plot histogram + trace with detected events and threshold.
+        """
 
         fig, axs = plt.subplots(2, 1, figsize=(10, 8))
-        fig.suptitle(f'Run #{self.run_id} Tunneling Summary - Vg = {Vg * 1e3:.2f} mV', fontsize=14)
+        fig.suptitle(f'Run #{self.run_id} Tunneling Summary - Vg = {Vg * 1e3:.2f} mV',
+                     fontsize=14)
 
+        # Histogram and Gaussian components
         hist, bins = np.histogram(voltage, bins=100, density=True)
         bin_centers = 0.5 * (bins[:-1] + bins[1:])
-        axs[0].bar(bin_centers, hist, width=bins[1] - bins[0], alpha=0.6, color='gray', label='Histogram')
+        axs[0].bar(bin_centers, hist, width=bins[1] - bins[0],
+                   alpha=0.6, color='gray', label='Histogram')
         x_plot = np.linspace(np.min(voltage), np.max(voltage), 1000)
+
         if use_gmm:
             for i in range(2):
-                axs[0].plot(x_plot, weights[i] * norm.pdf(x_plot, means[i], covs[i]), '--', label=f'GMM {i + 1}')
+                axs[0].plot(x_plot,
+                            weights[i] * norm.pdf(x_plot, means[i], covs[i]),
+                            '--', label=f'GMM {i + 1}')
         else:
             def single_gaussian(x, mu, sigma, amp):
                 return amp * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+
             amp = np.max(hist)
             mu = np.mean(voltage)
             sigma = np.std(voltage)
-            axs[0].plot(x_plot, single_gaussian(x_plot, mu, sigma, amp), '--', label='Single Gaussian Fit')
+            axs[0].plot(x_plot, single_gaussian(x_plot, mu, sigma, amp),
+                        '--', label='Single Gaussian Fit')
 
-        axs[0].axvline(threshold, color='blue', linestyle='--', label=f'Threshold = {threshold:.3f}')
+        axs[0].axvline(threshold, color='blue', linestyle='--',
+                       label=f'Threshold = {threshold:.3f}')
         axs[0].set_title("Voltage Histogram")
         axs[0].legend()
 
+        # Time trace with detected events
         axs[1].plot(time, voltage, color='gray', label='Signal')
-        axs[1].plot(rise_times, voltage[np.searchsorted(time, rise_times)], 'go', label='Rise')
-        axs[1].plot(fall_times, voltage[np.searchsorted(time, fall_times)], 'ro', label='Fall')
+        axs[1].plot(rise_times, voltage[np.searchsorted(time, rise_times)],
+                    'go', label='Rise')
+        axs[1].plot(fall_times, voltage[np.searchsorted(time, fall_times)],
+                    'ro', label='Fall')
         axs[1].axhline(threshold, color='blue', linestyle='--', label='Threshold')
         axs[1].set_title("Tunneling Events")
         axs[1].legend()
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.save_path, f'Run_{self.run_id}_tunneling_summary_index_{idx}.png'), dpi=300)
+        if isinstance(self.save_path, str):
+            plt.savefig(os.path.join(
+                self.save_path,
+                f'Run_{self.run_id}_tunneling_summary_index_{idx}.png'
+            ), dpi=300)
         plt.close()
+
 
 class PulseTunnelingAnalysis_classic(DataSet): # This is for fixed gate voltage with varying pulse amplitudes
     """

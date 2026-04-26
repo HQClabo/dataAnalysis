@@ -92,8 +92,9 @@ def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, othe
     """
     slice_obj = find_slice(main_array, [lower_value, upper_value])
     main_array = main_array[slice_obj]
-    for other_array in other_arrays:
-        other_array = other_array[slice_obj]
+    if other_arrays is not None:
+        for other_array in other_arrays:
+            other_array = other_array[slice_obj]
     return main_array, other_arrays
 
 def slice_array(array, slice_length):

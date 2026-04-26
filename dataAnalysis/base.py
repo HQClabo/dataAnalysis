@@ -105,13 +105,17 @@ class DataSet():
             dependent_parameters = dataset.description.interdeps.non_dependencies
         # dependent_parameters = [paramspecs[param.name] for param in dataset.description.interdeps.top_level_parameters]
     
-        n_independent_parameters = 0
-        for param in dependent_parameters:
-            independent_parameters = interdeps[param]
-            n_independent_parameters = max(n_independent_parameters, len(independent_parameters))
-        if len(paramspecs) > n_independent_parameters + len(dependent_parameters):
-            print('Warning: This function is not suitable for exctracting data from such a dataset. All dependent parameters have to depend on the same independent parameters.')
-            return None
+        # Find independent parameters
+        if dataset.description.interdeps.dependencies == {}:
+            n_independent_parameters = 0
+        else:
+            n_independent_parameters = 0
+            for param in dependent_parameters:
+                independent_parameters = interdeps[param]
+                n_independent_parameters = max(n_independent_parameters, len(independent_parameters))
+            if len(paramspecs) > n_independent_parameters + len(dependent_parameters):
+                print('Warning: This function is not suitable for exctracting data from such a dataset. All dependent parameters have to depend on the same independent parameters.')
+                return None
     
         if n_independent_parameters == 2:
             data_pivot = df.pivot_table(index=independent_parameters[1].name, columns=independent_parameters[0].name)
@@ -127,6 +131,12 @@ class DataSet():
             dependent_values = {}
             for i, param in enumerate(dependent_parameters):
                 dependent_values[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspecs[param.name], 'values': df[param.name].values}
+        elif n_independent_parameters == 0:
+            independent_values = {}
+            dependent_values = {}
+            for i, param in enumerate(dependent_parameters):
+                dependent_values[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspecs[param.name], 'values': df[param.name].values}
+
         self.dependent_parameters = dependent_values
         self.independent_parameters = independent_values
         self.dataset = dataset
@@ -736,8 +746,10 @@ class DataSet():
 
 
 class ConcatenatedDataSet(DataSet):
-    def __init__(self, exp, run_id:list, outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, station=None):
-        self.run_id = run_id
+    def __init__(self, exp, run_id_first:int, run_id_last:int=None, num_runs:int=None, outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, station=None):
+        self.run_id_first = run_id_first
+        self.run_id_last = run_id_last
+        self.num_runs = num_runs
         self.exp = exp
         self.conn = self.exp.conn
         self.station = station
@@ -745,9 +757,15 @@ class ConcatenatedDataSet(DataSet):
         self.outer_param_name = outer_param_name if outer_param_name!=None else "outer_param"
         self.outer_param_unit = outer_param_unit if outer_param_unit!=None else ""
     
-        assert isinstance(run_id, list) and len(run_id)==2, "Error: run_id must be an integer or a list of two elements [start_run_id, end_run_id]."
-
-        assert run_id[1] - run_id[0] + 1 == len(outer_param_values), "The number of run ids to concatenate and the length of the outer parameter array must be the same."
+        if num_runs != None: 
+            assert run_id_last == None, "Error: provide either run_id_last OR num_runs"
+            self.run_id_last = run_id_first + num_runs - 1
+        if run_id_last != None:
+            assert num_runs == None, "Error: provide either run_id_last OR num_runs"
+            self.num_runs = run_id_last - run_id_first + 1
+        assert self.num_runs == len(outer_param_values), "The number of run ids to concatenate and the length of the outer parameter array must be the same."
+        
+        self.run_id = [self.run_id_first, self.run_id_last] # for printing purposes
 
         self.extract_data()
 
@@ -761,7 +779,7 @@ class ConcatenatedDataSet(DataSet):
 
         #############
         # Read inner loop parameter and num/names of dependent parameters from the first run id
-        rid = self.run_id[0]
+        rid = self.run_id_first
         dataset = qc.load_by_id(rid, self.exp.conn)
         df = dataset.to_pandas_dataframe()
         interdeps = dataset.description.interdeps.dependencies
@@ -770,13 +788,22 @@ class ConcatenatedDataSet(DataSet):
             dependent_parameters = dataset.description.interdeps.top_level_parameters
         except:
             dependent_parameters = dataset.description.interdeps.non_dependencies
-        n_independent_parameters = 0
-        for param in dependent_parameters:
-            independent_parameters = interdeps[param]
-            n_independent_parameters = max(n_independent_parameters, len(independent_parameters))
-        # Inner loop parameter goes into y
-        assert n_independent_parameters == 1, "Can only concatenate multiple 1D datasets but the provided ones are 2D."
-        self.independent_parameters['y'] = {'name': 'y', 'paramspec': paramspecs[independent_parameters[0].name], 'values': df[dependent_parameters[0].name].index.values}
+
+        # Find independent parameters
+        if dataset.description.interdeps.dependencies == {}:
+            n_independent_parameters = 0
+        else:
+            n_independent_parameters = 0
+            for param in dependent_parameters:
+                independent_parameters = interdeps[param]
+                n_independent_parameters = max(n_independent_parameters, len(independent_parameters))
+        
+        assert n_independent_parameters == 0 or n_independent_parameters == 1, "Can only concatenate multiple 02 or 1D datasets but the provided ones are 2D or higher-dimensional."
+    
+        if n_independent_parameters == 1:
+            # Inner loop parameter goes into y
+            self.independent_parameters['y'] = {'name': 'y', 'paramspec': paramspecs[independent_parameters[0].name], 'values': df[dependent_parameters[0].name].index.values}
+        
         # Create dictionaries for dependent parameters, but make them empty for now
         for i, param in enumerate(dependent_parameters):
             paramspec = paramspecs[param.name]
@@ -786,7 +813,7 @@ class ConcatenatedDataSet(DataSet):
 
         ##############
         # Concatenate the data
-        for rid in range(self.run_id[0]+1, self.run_id[1]+1):
+        for rid in range(self.run_id_first+1, self.run_id_last+1):
             dataset = qc.load_by_id(rid, self.exp.conn)
             df = dataset.to_pandas_dataframe()
             interdeps = dataset.description.interdeps.dependencies
@@ -800,9 +827,10 @@ class ConcatenatedDataSet(DataSet):
 
         ##############
         # Finally, transpose
-        for i, param in enumerate(dependent_parameters):
-            self.dependent_parameters[f'param_{i}']['values'] = self.dependent_parameters[f'param_{i}']['values'].T
-                
+        if n_independent_parameters == 1:
+            for i, param in enumerate(dependent_parameters):
+                self.dependent_parameters[f'param_{i}']['values'] = self.dependent_parameters[f'param_{i}']['values'].T
+                    
 
 
 
