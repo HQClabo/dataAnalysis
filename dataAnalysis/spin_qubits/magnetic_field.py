@@ -3,34 +3,32 @@ import matplotlib.pyplot as plt
 from scipy import constants
 import lmfit
 import scipy
-from dataAnalysis.base import DataSet, ConcatenatedDataSet, val_to_index
+from dataAnalysis.dataset import DataSet, ConcatenatedDataSet, val_to_index
 
 
 #####################################################################################################
 # CLASSES
 #####################################################################################################
 class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
-    def __init__(self, exp, run_id:int|list, B_in_mag, B_out=0, angle_values=None, angle_label="In_plane_angle", angle_unit="Deg", mode='from_driven_spectroscopy'):
+    def __init__(self, exp, run_id_first:int, angle_values, B_in_mag, B_out=0, angle_label="In_plane_angle", angle_unit="Deg", mode='from_driven_spectroscopy'):
         """
         Args:
             exp: Experiment
-            run_id: [start_id, stop_id]
+            run_id_first: first run id
+            angle_values: Swept values of the in-plane angle.
             B_in_mag: Magnitude of the in-plane component of the B field.
             B_out (optional, default 0): Out-of-plane component of the B field.
-            angle_values(optional, default None): Swept values of the in-plane angle.
             angle_label: Label to use for the angle variable in plots.
             angle_unit: Unit of the angles.
             mode: either 'from_driven_spectroscopy' if the antiparallel spins are excited with a gate drive tone, or 'from_free_time_evolution' if they are excited by fast ramps
                   inducing ST- and/or ST0 oscillations. In the latter, this class computes the numerical fft first to find the excitation frequencies.
 
         """
-        if isinstance(run_id, int):
-            DataSet.__init__(self, exp, run_id)
-        elif isinstance(run_id, list):
-            if angle_values is None:
-                num_in_plane_angles = run_id[1] - run_id[0] + 1
-                angle_values = np.linspace(0, 360, num_in_plane_angles)
-            ConcatenatedDataSet.__init__(self, exp, run_id, angle_values, angle_label, angle_unit)
+        self.run_id_first = run_id_first
+        self.num_angles = len(angle_values)
+        # if isinstance(run_id, int):
+        #     DataSet.__init__(self, exp, run_id)
+        ConcatenatedDataSet.__init__(self, exp, run_id_first, num_runs=self.num_angles, outer_param_values=angle_values, outer_param_name=angle_label, outer_param_unit=angle_unit)
         if mode == 'from_driven_spectroscopy':
             self.freq = self.independent_parameters['y']['values']
         elif mode == 'from_free_time_evolution':
