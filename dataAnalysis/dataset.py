@@ -521,6 +521,46 @@ class DataSet():
             new_pspec = ParamSpec(original_pspec.name+'_fft', 'numeric', 'FFT of '+original_pspec.label, original_pspec.unit, [], depends_on)
             self.dependent_parameters[param_name+'_fft']['paramspec'] = new_pspec
 
+    def plot(self, params_to_plot=None, x_range=None, y_range=None, title=None, **kwargs):
+        """
+        Plots the data based on the specified parameters. Automatically determines whether to plot in 1D or 2D based on the number of independent parameters the dependent parameter(s) depend on.
+
+        Args:
+            params_to_plot (list or str, optional): List of parameter names to plot. If not provided, all dependent parameters will be plotted. Defaults to None.
+            x_range (list, optional): List of the plotting limits of the x-axis. Defaults to None (max range).
+            y_range (list, optional): List of the plotting limits of the y-axis. Defaults to None (max range).
+            title (str, optional): Plot title to add after run_id and experiment name. Defaults to None.
+            **kwargs: Additional keyword arguments to be passed to the `plt.plot` function.
+
+        Returns:
+            tuple: A tuple containing the generated figures and axes.
+
+        Raises:
+            ValueError: If a parameter name in `params_to_plot` does not exist in the data.
+        """
+        if isinstance(params_to_plot, str):
+            params_to_plot = [params_to_plot]
+        if not params_to_plot:
+            params_to_plot = self.dependent_parameters.keys()
+
+        figs = []
+        axes = []
+        cbs = []
+        for param_name in params_to_plot:
+            if param_name not in self.dependent_parameters:
+                raise ValueError(f'The parameter {param_name} does not exist in the data.')
+            ndims = len(self.dependent_parameters[param_name]['paramspec'].depends_on_)
+            if ndims == 1:
+                figs_temp, axes_temp = self.plot_1D(param_name, x_range, title, **kwargs)
+                cbs_temp = None
+            elif ndims == 2:
+                figs_temp, axes_temp, cbs_temp = self.plot_2D(param_name, x_range, y_range, title, **kwargs)
+            else:
+                raise ValueError(f'Plotting is only supported for parameters that depend 1 or 2 independent parameters. {param_name} depends on {ndims} parameters.')
+            figs.append(figs_temp)
+            axes.append(axes_temp)
+            cbs.append(cbs_temp)
+        return figs, axes, cbs
 
     def plot_1D(self, params_to_plot=None, x_range=None, title=None, **kwargs):
         """
