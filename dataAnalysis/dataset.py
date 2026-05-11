@@ -83,60 +83,54 @@ class DataSet():
         The parameters are callable using self.dependent_parameters and self.independent_parameters.
 
         Args:
-            run_id (str, optional): The ID of the run. If not provided, the last recorded run ID in exp will be used.
             exp (Experiment, optional): The Experiment object. If not provided, the last Experiment will be used.
+            run_id (str, optional): The ID of the run. If not provided, the last recorded run ID in exp will be used.
 
         Returns:
             None
         """
         if not run_id: run_id = self.run_id
         if not exp: exp = self.exp
-        dataset = qc.load_by_id(run_id, exp.conn)
-        df = dataset.to_pandas_dataframe()
-        interdeps = dataset.description.interdeps.dependencies
-    
-        paramspecs = dataset.paramspecs
-        try:
-            dependent_parameters = dataset.description.interdeps.top_level_parameters
-        except:
-            dependent_parameters = dataset.description.interdeps.non_dependencies
-        # dependent_parameters = [paramspecs[param.name] for param in dataset.description.interdeps.top_level_parameters]
-    
-        # Find independent parameters
-        if dataset.description.interdeps.dependencies == {}:
-            n_independent_parameters = 0
-        else:
-            n_independent_parameters = 0
-            for param in dependent_parameters:
-                independent_parameters = interdeps[param]
-                n_independent_parameters = max(n_independent_parameters, len(independent_parameters))
-            if len(paramspecs) > n_independent_parameters + len(dependent_parameters):
-                print('Warning: This function is not suitable for exctracting data from such a dataset. All dependent parameters have to depend on the same independent parameters.')
-                return None
-    
-        if n_independent_parameters == 2:
-            data_pivot = df.pivot_table(index=independent_parameters[1].name, columns=independent_parameters[0].name)
-            independent_values = {
-            'x': {'name': 'x', 'paramspec': paramspecs[independent_parameters[0].name], 'values': data_pivot[dependent_parameters[0].name].columns.values},
-            'y': {'name': 'y', 'paramspec': paramspecs[independent_parameters[1].name], 'values': data_pivot[dependent_parameters[0].name].index.values}
-            }
-            dependent_values = {}
-            for i, param in enumerate(dependent_parameters):
-                dependent_values[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspecs[param.name], 'values': data_pivot[param.name].values}
-        elif n_independent_parameters == 1:
-            independent_values = {'x': {'name': 'x', 'paramspec': paramspecs[independent_parameters[0].name], 'values': df[dependent_parameters[0].name].index.values}}
-            dependent_values = {}
-            for i, param in enumerate(dependent_parameters):
-                dependent_values[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspecs[param.name], 'values': df[param.name].values}
-        elif n_independent_parameters == 0:
-            independent_values = {}
-            dependent_values = {}
-            for i, param in enumerate(dependent_parameters):
-                dependent_values[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspecs[param.name], 'values': df[param.name].values}
+        self.dataset = qc.load_by_id(run_id, exp.conn)
+        df_dict = self.dataset.to_pandas_dataframe_dict()
 
-        self.dependent_parameters = dependent_values
-        self.independent_parameters = independent_values
-        self.dataset = dataset
+        # Find the paramspecs for dependent and independent parameters
+        independent_paramspecs = []
+        dependent_paramspecs = []
+        for pspec in self.dataset.paramspecs.values():
+            if pspec.depends_on_:
+                dependent_paramspecs.append(pspec)
+            else:
+                independent_paramspecs.append(pspec)
+
+        self.dependent_parameters = {}
+        data_pivot = None
+        for i, paramspec in enumerate(dependent_paramspecs):
+            df = df_dict[paramspec.name]
+            if len(paramspec.depends_on_) == 2:
+                # If the dependent parameter depends on two independent parameters, we pivot the dataframe to extract the values in a 2D format.
+                data_pivot = df.pivot_table(index=independent_paramspecs[1].name, columns=independent_paramspecs[0].name)
+                self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspec, 'values': data_pivot.values}
+            else:
+                self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspec, 'values': df.values}
+
+        self.independent_parameters = {}
+        if len(independent_paramspecs) == 1:
+            # find first dependent parameter that depends on one parameter and use its dataframe to extract the independent parameter values
+            for i, paramspec in enumerate(dependent_paramspecs):
+                if len(paramspec.depends_on_) == 1:
+                    df = df_dict[paramspec.name]
+                    break
+            self.independent_parameters['x'] = {'name': 'x', 'paramspec': independent_paramspecs[0], 'values': df.index.values}
+        if len(independent_paramspecs) == 2:
+            # Find the first dependent parameter that depends on two parameters and use its dataframe to extract the independent parameter values.
+            for i, paramspec in enumerate(dependent_paramspecs):
+                if len(paramspec.depends_on_) == 2:
+                    df = df_dict[paramspec.name]
+                    data_pivot = df.pivot_table(index=independent_paramspecs[1].name, columns=independent_paramspecs[0].name)
+                    break
+            self.independent_parameters['x'] = {'name': 'x', 'paramspec': independent_paramspecs[0], 'values': data_pivot[paramspec.name].columns.values}
+            self.independent_parameters['y'] = {'name': 'y', 'paramspec': independent_paramspecs[1], 'values': data_pivot[paramspec.name].index.values}
 
 
     def copy_dependent_parameter(self, parameter_to_copy, copy_name):
