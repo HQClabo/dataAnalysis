@@ -1,5 +1,5 @@
 
-
+from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
@@ -9,6 +9,7 @@ from qcodes.dataset.data_export import DSPlotData
 from qcodes.dataset.plotting import _rescale_ticks_and_units
 from qcodes.dataset.descriptions.param_spec import ParamSpec
 import dataAnalysis.resonator_fitting as resfit
+import dataAnalysis.utils as utils
 
 
 def val_to_index(array, value):
@@ -179,7 +180,7 @@ class DataSet():
                     print(f"Warning: {name} is the second match found in independent_parameters. Returning {param['paramspec'].name} instead.")
         return param
 
-    def normalize_data_mag_phase(self, mag_param_name, phase_param_name, cData_bg, x_bg, axis=0, interpolate=True):
+    def normalize_data_mag_phase(self, mag_param_name, phase_param_name, cData_bg, x_bg, axis=0, interpolate=True, renormalize=False, invert_operation=False):
         """
         Normalize the magnitude and phase data with the given complex data.
     
@@ -190,28 +191,37 @@ class DataSet():
             x_bg (numpy.ndarray): The x-values of the background data.
             axis (int, optional): The axis along which to normalize the data. Can be 0 and 1. Defaults to 0.
             interpolate (bool, optional): Whether to interpolate the data. Defaults to False.
+            renormalize (bool, optional): If True, the already normalized data will be renormalized with the new background data. Defaults to False.
+            invert_operation (bool, optional): If True, the normalization operation will be inverted (i.e., 'divide' will become 'multiply'). Defaults to False.
     
         Returns:
             None
 
         """
-    
-        mag_vals = self.dependent_parameters[mag_param_name]['values']
-        phase_vals = self.dependent_parameters[phase_param_name]['values']
+
+        if renormalize:
+            mag_vals = self.dependent_parameters[mag_param_name+'_normalized']['values']
+            phase_vals = self.dependent_parameters[phase_param_name+'_normalized']['values']
+        else:
+            self.copy_dependent_parameter(mag_param_name, mag_param_name+'_normalized')
+            self.copy_dependent_parameter(phase_param_name, phase_param_name+'_normalized')
+            mag_vals = self.dependent_parameters[mag_param_name]['values']
+            phase_vals = self.dependent_parameters[phase_param_name]['values']
         cData_to_normalize = 10**(mag_vals/20)*np.exp(1j*phase_vals)
         if (len(self.dependent_parameters[mag_param_name]['paramspec'].depends_on_) > 1) and (axis == 0):
             x_vals = self.independent_parameters['y']['values']
         else:
             x_vals = self.independent_parameters['x']['values']
-
-        data_normalized = self.normalize_data_raw(cData_to_normalize, x_vals, cData_bg, x_bg, axis, 'divide', interpolate)
-        self.copy_dependent_parameter(mag_param_name, mag_param_name+'_normalized')
+        if invert_operation:
+            operation = 'multiply'
+        else:
+            operation = 'divide'
+        data_normalized = self.normalize_data_raw(cData_to_normalize, x_vals, cData_bg, x_bg, axis, operation, interpolate)
         self.dependent_parameters[mag_param_name+'_normalized']['values'] = 20*np.log10(np.abs(data_normalized))
-        self.copy_dependent_parameter(phase_param_name, phase_param_name+'_normalized')
         self.dependent_parameters[phase_param_name+'_normalized']['values'] = np.angle(data_normalized)
 
 
-    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
+    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True, renormalize=False):
         """
         Normalize the data for the specified dependent parameters.
     
@@ -220,8 +230,9 @@ class DataSet():
             data_bg (numpy.ndarray or list): The background data.
             x_bg (numpy.ndarray or list): The x-values of the background data.
             axis (int or list, optional): The axis along which to normalize the data. Can be 0 and 1. Defaults to 0.
-            operation (str or list, optional): The operation to perform for normalization. Can be 'subtract' or 'divide'. Defaults to 'subtract'.
+            operation (str or list, optional): The operation to perform for normalization. Can be 'subtract', 'divide', 'add' or 'mulitply'. Defaults to 'subtract'.
             interpolate (bool or list, optional): Whether to interpolate the data. Defaults to False.
+            renormalize (bool, optional): If true, the already normalized data will be renormalized with the new background data. Defaults to False.
     
         Returns:
             None
@@ -230,6 +241,13 @@ class DataSet():
         # Convert single string to list
         if isinstance(params_to_normalize, str):
             params_to_normalize = [params_to_normalize]
+        if renormalize:
+            params_temp = []
+            for param in params_to_normalize:
+                params_temp.append(param+'_normalized')
+            params_to_normalize = params_temp
+        else:
+            self.copy_dependent_parameter(param_name, param_name+'_normalized')
     
         # Create a dictionary mapping variable names to their values
         variables = {'data_bg': data_bg, 'x_bg': x_bg, 'axis': axis, 'operation': operation, 'interpolate': interpolate}
@@ -241,10 +259,8 @@ class DataSet():
             else:
                 variables[name] = [value] * len(params_to_normalize)
         # Extract the variables from the dictionary
-        data_bg, x_bg, axis, operation, interpolate = variables.values()    
+        data_bg, x_bg, axis, operation, interpolate = variables.values()
     
-        
-        nomalized_dict = {}
         for i, param_name in enumerate(params_to_normalize):
             if param_name not in self.dependent_parameters:
                 raise ValueError(f'The parameter {param_name} does not exist in the data.')
@@ -252,37 +268,34 @@ class DataSet():
                 x_vals = self.independent_parameters['y']['values']
             else:
                 x_vals = self.independent_parameters['x']['values']
-            self.copy_dependent_parameter(param_name, param_name+'_normalized')
+            
             y_vals = self.dependent_parameters[param_name]['values']
             data_normalized = self.normalize_data_raw(y_vals, x_vals, data_bg[i], x_bg[i], axis[i], operation[i], interpolate[i])
             self.dependent_parameters[param_name+'_normalized']['values'] = data_normalized
     
     def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
         """
-        Normalize the given raw data by subtracting or dividing it with the background data.
+        Normalize the given raw data by subtracting, dividing, adding or multiplying it with the background data.
 
-        Parameters:
-        - data_raw (numpy.ndarray): The raw data to be normalized.
-        - x_raw (numpy.ndarray): The x-values corresponding to the raw data.
-        - data_bg (numpy.ndarray): The background data used for normalization.
-        - x_bg (numpy.ndarray): The x-values corresponding to the background data.
-        - axis (int, optional): The axis along which the normalization is performed. Default is 0.
-        - operation (str, optional): The operation to perform for normalization. Can be 'subtract' or 'divide'. Default is 'subtract'.
-        - interpolate (bool, optional): Whether to interpolate the background data to match the resolution of the raw data. Default is False.
+        Args:
+            data_raw (numpy.ndarray): The raw data to be normalized.
+            x_raw (numpy.ndarray): The x-values corresponding to the raw data.
+            data_bg (numpy.ndarray): The background data used for normalization.
+            x_bg (numpy.ndarray): The x-values corresponding to the background data.
+            axis (int, optional): The axis along which the normalization is performed. Default is 0.
+            operation (str, optional): The operation to perform for normalization. Can be 'subtract', 'divide', 'add' or 'mulitply'. Default is 'subtract'.
+            interpolate (bool, optional): Whether to interpolate the background data to match the resolution of the raw data. Default is False.
 
         Returns:
-        - numpy.ndarray: The normalized data.
-
-        Raises:
-        - None
+            numpy.ndarray: The normalized data.
 
         Examples:
-        >>> data_raw = np.array([1, 2, 3, 4, 5])
-        >>> x_raw = np.array([0, 1, 2, 3, 4])
-        >>> data_bg = np.array([0, 0, 0, 0, 0])
-        >>> x_bg = np.array([0, 1, 2, 3, 4])
-        >>> normalize_data_raw(data_raw, x_raw, data_bg, x_bg)
-        array([1, 2, 3, 4, 5])
+            >>> data_raw = np.array([1, 2, 3, 4, 5])
+            >>> x_raw = np.array([0, 1, 2, 3, 4])
+            >>> data_bg = np.array([0, 0, 0, 0, 0])
+            >>> x_bg = np.array([0, 1, 2, 3, 4])
+            >>> normalize_data_raw(data_raw, x_raw, data_bg, x_bg)
+            array([1, 2, 3, 4, 5])
         """
         x_slice = self.find_slice(x_bg,[min(x_raw),max(x_raw)])
         if not interpolate and (len(x_raw) != len(x_bg[x_slice])):
@@ -302,33 +315,52 @@ class DataSet():
             data_normalized = data_raw - data_bg_converted
         elif operation=='divide':
             data_normalized = data_raw / data_bg_converted
+        elif operation=='add':
+            data_normalized = data_raw + data_bg_converted
+        elif operation=='multiply':
+            data_normalized = data_raw * data_bg_converted
     
         return data_normalized
     
-    def normalize_data_from_average(self, params_to_normalize:list=None, axis=0, operation="subtract"):
+    def normalize_data_from_average(self, params_to_normalize:list=None, axis=0, operation="subtract", renormalize=False):
         """
         Normalize data with the average along one axis.
 
         Parameters:
             axis (default 0): axis along which to calculate and subtract the average.
             operation (default "subtract"): "subtract" or "divide".
+            renormalize (bool, optional): If True, the already normalized data will be renormalized with the new background data. Defaults to False.
         """
         assert operation == "subtract" or operation == "divide", "The operation must be either 'subtract' or 'divide'."
         if params_to_normalize is None:
             params_to_normalize = list(self.dependent_parameters.keys())
         for param_name in params_to_normalize:
-            self.copy_dependent_parameter(param_name, param_name+'_normalized')
-            values = self.dependent_parameters[param_name]['values']
+            if renormalize:
+                values = self.dependent_parameters[param_name+'_normalized']['values']
+            else:
+                self.copy_dependent_parameter(param_name, param_name+'_normalized')
+                values = self.dependent_parameters[param_name]['values']
+
             if axis == 0:
                 if operation == 'subtract':
-                    self.dependent_parameters[param_name+'_normalized']['values'] = values - np.average(values, axis=0)
+                    values_normalized = values - np.average(values, axis=0)
                 elif operation == 'divide':
-                    self.dependent_parameters[param_name+'_normalized']['values'] = values / np.average(values, axis=0)
+                    values_normalized = values / np.average(values, axis=0)
+                elif operation == 'add':
+                    values_normalized = values + np.average(values, axis=0)
+                elif operation == 'multiply':
+                    values_normalized = values * np.average(values, axis=0)
             elif axis == 1:
                 if operation == 'subtract':
-                    self.dependent_parameters[param_name+'_normalized']['values'] = (values.T - np.average(values, axis=1)).T
+                    values_normalized = (values.T - np.average(values, axis=1)).T
                 elif operation == 'divide':
-                    self.dependent_parameters[param_name+'_normalized']['values'] = (values.T / np.average(values, axis=1)).T
+                    values_normalized = (values.T / np.average(values, axis=1)).T
+                elif operation == 'add':
+                    values_normalized = (values.T + np.average(values, axis=1)).T
+                elif operation == 'multiply':
+                    values_normalized = (values.T * np.average(values, axis=1)).T
+            self.dependent_parameters[param_name+'_normalized']['values'] = values_normalized
+
 
     def derive_data(self, parameters, axis=0):
         """
@@ -911,7 +943,7 @@ class DataSetVNA(DataSet):
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
 
-    def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True):
+    def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True, renormalize=False, invert_operation=False):
         """
         Normalize the measurement data using a background measurement run or provided background data.
         This function normalizes the measurement data using either a 1D background measurement run identified by `run_id_bg` 
@@ -923,8 +955,8 @@ class DataSetVNA(DataSet):
             cData_bg (np.array, optional): Complex background data. Default is None.
             freq_bg (np.array, optional): Frequency data corresponding to the background data. Default is None.
             axis (int, optional): Axis along which to normalize. Default is 0.
-            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match 
-                                          with the measurement data. Default is True.
+            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match with the measurement data. Default is True.
+            renormalize (bool, optional): If True, the already normalized data will be renormalized with the new background data. Defaults to False.
         Raises:
             ValueError: If neither `run_id_bg` nor both `cData_bg` and `freq_bg` are provided.
         """
@@ -935,10 +967,49 @@ class DataSetVNA(DataSet):
         elif cData_bg is None or freq_bg is None:
             raise ValueError("Either run_id_bg or cData_bg and freq_bg must be provided.")
         
-        self.normalize_data_mag_phase(self.name_mag, self.name_phase, cData_bg, freq_bg, axis=axis, interpolate=interpolate)
+        self.normalize_data_mag_phase(self.name_mag, self.name_phase, cData_bg, freq_bg, axis=axis, interpolate=interpolate, renormalize=renormalize, invert_operation=invert_operation)
         self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
         self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+
+    def normalize_data_chain(self,
+                             datasets_to_subtract: DataSetVNA|list[DataSetVNA],
+                             datasets_to_add: DataSetVNA|list[DataSetVNA],
+                             offset_dB: float = 0,
+                             axis: int=0,
+                             interpolate=True
+                             ):
+        """
+        Normalize the measurement data by sequentially subtracting the magnitude and phase of multiple background datasets.
+
+        Args:
+            datasets_to_subtract (DataSetVNA or list of DataSetVNA): A single DataSetVNA object or a list of DataSetVNA objects to be subtracted from the measurement data.
+            datasets_to_add (DataSetVNA or list of DataSetVNA): A single DataSetVNA object or a list of DataSetVNA objects to be added to the measurement data after subtraction.
+            axis (int, optional): Axis along which to normalize. Default is 0.
+            interpolate (bool, optional): Flag to interpolate the background trace if the number of points do not match
+        """
+        if not isinstance(datasets_to_subtract, list):
+            datasets_to_subtract = [datasets_to_subtract]
+        if not isinstance(datasets_to_add, list):
+            datasets_to_add = [datasets_to_add]
+        subtract_data = [ds.cData for ds in datasets_to_subtract]
+        subtract_freqs = [ds.freq for ds in datasets_to_subtract]
+        add_data = [ds.cData for ds in datasets_to_add]
+        add_freqs = [ds.freq for ds in datasets_to_add]
+
+        self.copy_dependent_parameter(self.name_mag, self.name_mag+'_normalized')
+        self.copy_dependent_parameter(self.name_phase, self.name_phase+'_normalized')
+
+        for data, freq in zip(subtract_data, subtract_freqs):
+            self.normalize_data_mag_phase(self.name_mag, self.name_phase, data, freq, axis=axis, interpolate=interpolate, renormalize=True, invert_operation=False)
+        for data, freq in zip(add_data, add_freqs):
+            self.normalize_data_mag_phase(self.name_mag, self.name_phase, data, freq, axis=axis, interpolate=interpolate, renormalize=True, invert_operation=True)
+        self.normalize_data_mag_phase(self.name_mag, self.name_phase, np.array([10**(offset_dB/20)]*len(self.freq)), self.freq, axis=axis, interpolate=interpolate, renormalize=True, invert_operation=True)
+        self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
+        self.phase_norm = self.dependent_parameters[self.name_phase+'_normalized']['values']
+        self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
 
     def normalize_data_from_Bscan_slice(self, run_id_Bscan: int, B_field_slice_value: float, axis: int=0, interpolate=True):
         """
@@ -1022,36 +1093,39 @@ class FrequencyScanVNA(DataSetVNA):
         except:
             pass
 
-    def delay_correction(self, normalized=True, delay=None, fraction=0.1):
+    def delay_correction(self, delay=None, fit_range=None, fraction=0.1):
         """
         Apply a delay correction to the complex data.
 
         Args:
             normalized (bool, optional): Whether to apply the correction to the normalized data (if available) or the raw data. Default is True.
             delay (float, optional): The delay time in seconds to be corrected for. If None, the delay will be estimated from a linear fit of the unwrapped phase. Default is None.
+            fit_range (tuple, optional): The frequency range to use for the linear fit if delay is None. Default is None (i.e., the entire frequency range will be used for the fit).
             fraction (float, optional): The fraction of the data to use for the linear fit if delay is None. Default is 0.1 (i.e., the first and last 10% of the data will be used for the fit).
 
         Returns:
             delay (float): The delay time that was corrected for.
         """
-        freq = self.freq
-        try:
-            data = self.cData_norm
-        except AttributeError:
-            data = self.cData
-            if normalized:
-                print("Warning: Normalized data not found. Using raw data instead.")
+        if self.name_mag+'_normalized' not in self.dependent_parameters.keys() or self.name_phase+'_normalized' not in self.dependent_parameters.keys():
+            self.copy_dependent_parameter(self.name_mag, self.name_mag+'_normalized')
+            self.copy_dependent_parameter(self.name_phase, self.name_phase+'_normalized')
 
+        freq = self.freq
+        data = self.cData_norm
         phase = np.unwrap(np.angle(data))
         if delay is None:
             # linear fit of first and last 10% of the unwrapped phase
             first = int(len(freq)//(1/fraction))
             last = -int(len(freq)//(1/fraction))
+            if fit_range is not None:
+                idx_start, idx_stop = utils.find_idx(freq, fit_range)
+                first = first + idx_start
+                last = last - idx_stop
             fit1 = linregress(freq[:first], phase[:first])
             fit2 = linregress(freq[last:], phase[last:])
             delay = -(fit1.slope + fit2.slope) / 2 / (2*np.pi)
 
-        alpha = (phase[len(phase)//2] + 2*np.pi*delay*freq[0]) % (2*np.pi)
+        alpha = (phase[len(phase)//2] + 2*np.pi*delay*freq[0]) % (2*np.pi) + np.pi
         correction = np.exp(-1j * (alpha - 2*np.pi*freq*delay))
 
         try:
@@ -1066,8 +1140,7 @@ class FrequencyScanVNA(DataSetVNA):
             self.phase = np.angle(self.cData)
             self.dependent_parameters[self.name_mag]['values'] = self.mag
             self.dependent_parameters[self.name_phase]['values'] = self.phase
-            if normalized:
-                print("Warning: Normalized data not found. Using raw data instead.")
+            print("Warning: Normalized data not found. Using raw data instead.")
         
         return delay
 
