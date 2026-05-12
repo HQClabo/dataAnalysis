@@ -552,14 +552,14 @@ class DataSet():
             ndims = len(self.dependent_parameters[param_name]['paramspec'].depends_on_)
             if ndims == 1:
                 figs_temp, axes_temp = self.plot_1D(param_name, x_range, title, **kwargs)
-                cbs_temp = None
+                cbs_temp = [None]
             elif ndims == 2:
                 figs_temp, axes_temp, cbs_temp = self.plot_2D(param_name, x_range, y_range, title, **kwargs)
             else:
                 raise ValueError(f'Plotting is only supported for parameters that depend 1 or 2 independent parameters. {param_name} depends on {ndims} parameters.')
-            figs.append(figs_temp)
-            axes.append(axes_temp)
-            cbs.append(cbs_temp)
+            figs.extend(figs_temp)
+            axes.extend(axes_temp)
+            cbs.extend(cbs_temp)
         return figs, axes, cbs
 
     def plot_1D(self, params_to_plot=None, x_range=None, title=None, **kwargs):
@@ -1074,6 +1074,9 @@ class DataSetVNA(DataSet):
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
         self.phase_norm = self.dependent_parameters['param_1_normalized']['values']
         self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
+    def plot_normalized(self, **kwargs):
+        return self.plot([self.name_mag+'_normalized', self.name_phase+'_normalized'], **kwargs)
 
     def plot_1D_normalized(self, **kwargs):
         return self.plot_1D([self.name_mag+'_normalized', self.name_phase+'_normalized'], **kwargs)
