@@ -110,9 +110,9 @@ class DataSet():
             if len(paramspec.depends_on_) == 2:
                 # If the dependent parameter depends on two independent parameters, we pivot the dataframe to extract the values in a 2D format.
                 data_pivot = df.pivot_table(index=independent_paramspecs[1].name, columns=independent_paramspecs[0].name)
-                self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspec, 'values': data_pivot.values}
+                self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspec, 'values': data_pivot[paramspec.name].values}
             else:
-                self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspec, 'values': df.values}
+                self.dependent_parameters[f'param_{i}'] = {'name': f'param_{i}', 'paramspec': paramspec, 'values': df[paramspec.name].values}
 
         self.independent_parameters = {}
         if len(independent_paramspecs) == 1:
@@ -121,7 +121,7 @@ class DataSet():
                 if len(paramspec.depends_on_) == 1:
                     df = df_dict[paramspec.name]
                     break
-            self.independent_parameters['x'] = {'name': 'x', 'paramspec': independent_paramspecs[0], 'values': df.index.values}
+            self.independent_parameters['x'] = {'name': 'x', 'paramspec': independent_paramspecs[0], 'values': df[paramspec.name].index.values}
         if len(independent_paramspecs) == 2:
             # Find the first dependent parameter that depends on two parameters and use its dataframe to extract the independent parameter values.
             for i, paramspec in enumerate(dependent_paramspecs):
@@ -977,7 +977,7 @@ class DataSetVNA(DataSet):
         self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
 
 
-    def normalize_data_vna(self, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True, renormalize=False, invert_operation=False):
+    def normalize_data_vna(self, ds_bg: DataSetVNA=None, run_id_bg: int=None, cData_bg: np.array=None, freq_bg: np.array=None, axis: int=0, interpolate=True, renormalize=False, invert_operation=False):
         """
         Normalize the measurement data using a background measurement run or provided background data.
         This function normalizes the measurement data using either a 1D background measurement run identified by `run_id_bg` 
@@ -985,6 +985,7 @@ class DataSetVNA(DataSet):
         experiment as the data run ID.
 
         Args:
+            ds_bg (DataSetVNA, optional): DataSet of the background measurement. Default is None.
             run_id_bg (int, optional): ID of the background measurement run. Default is None.
             cData_bg (np.array, optional): Complex background data. Default is None.
             freq_bg (np.array, optional): Frequency data corresponding to the background data. Default is None.
@@ -994,12 +995,15 @@ class DataSetVNA(DataSet):
         Raises:
             ValueError: If neither `run_id_bg` nor both `cData_bg` and `freq_bg` are provided.
         """
-        if run_id_bg is not None:
+        if ds_bg is not None:
+            freq_bg = ds_bg.freq
+            cData_bg = ds_bg.cData
+        elif run_id_bg is not None:
             ds_bg = DataSetVNA(self.exp, run_id_bg)
             freq_bg = ds_bg.freq
             cData_bg = ds_bg.cData
         elif cData_bg is None or freq_bg is None:
-            raise ValueError("Either run_id_bg or cData_bg and freq_bg must be provided.")
+            raise ValueError("Either ds_bg, run_id_bg or cData_bg and freq_bg must be provided.")
         
         self.normalize_data_mag_phase(self.name_mag, self.name_phase, cData_bg, freq_bg, axis=axis, interpolate=interpolate, renormalize=renormalize, invert_operation=invert_operation)
         self.mag_norm = self.dependent_parameters[self.name_mag+'_normalized']['values']
