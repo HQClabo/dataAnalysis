@@ -521,6 +521,53 @@ class DataSet():
             new_pspec = ParamSpec(original_pspec.name+'_fft', 'numeric', 'FFT of '+original_pspec.label, original_pspec.unit, [], depends_on)
             self.dependent_parameters[param_name+'_fft']['paramspec'] = new_pspec
 
+    def get_resistance_from_IV(self):
+        """
+        Calculate the resistance of all parameters that are IV curves and save them in a dictionary.
+
+        Returns:
+            resistances (dict): Dictionary containing the parameter names and their respective resistance.
+
+        """
+        resistances = {}
+        for param in self.dependent_parameters.values():
+            if param['paramspec'].unit == 'A':
+                voltage_name = param['paramspec'].depends_on
+                voltage_param = self.get_independent_parameter_by_name(voltage_name)
+                if voltage_param['paramspec'].unit == 'V':
+                    voltage = voltage_param['values']
+                    current = param['values']
+                    lin_fit = linregress(voltage, current)
+                    resistances['R_'+param['paramspec'].name] = 1/lin_fit.slope
+        return resistances
+
+    def print_resistance_from_IV(self, unit='Ohm'):
+        """
+        Calculate and print the resistance of all parameters that are IV curves.
+
+        Args:
+            unit (str, optional): Resistance unit to be used for printing. Can be 'Ohm', 'kOhm', 'MOhm', 'GOhm' or 'mOhm'. Defult is 'Ohm'.
+
+        Returns:
+            None
+
+        """
+        if unit=='mOhm':
+            factor = 1e-3
+        elif unit=='Ohm':
+            factor = 1
+        elif unit=='kOhm':
+            factor = 1e3
+        elif unit=='MOhm':
+            factor = 1e6
+        elif unit=='GOhm':
+            factor = 1e9
+        else:
+            raise ValueError(f"unit must be 'Ohm', 'kOhm', 'MOhm', 'GOhm' or 'mOhm', but {unit} was passed.")
+        resistances = self.get_resistance_from_IV()
+        for key, value in resistances.items():
+            print(key+':\t', f'{value/factor: 8.2f} '+unit)
+
     def plot(self, params_to_plot=None, x_range=None, y_range=None, title=None, **kwargs):
         """
         Plots the data based on the specified parameters. Automatically determines whether to plot in 1D or 2D based on the number of independent parameters the dependent parameter(s) depend on.
