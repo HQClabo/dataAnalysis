@@ -1134,13 +1134,13 @@ class FrequencyScanVNA(DataSetVNA):
         except:
             pass
 
-    def delay_correction(self, delay=None, fit_range=None, fraction=0.1):
+    def delay_correction(self, delay=None, alpha=None, fit_range=None, fraction=0.1):
         """
         Apply a delay correction to the complex data.
 
         Args:
-            normalized (bool, optional): Whether to apply the correction to the normalized data (if available) or the raw data. Default is True.
             delay (float, optional): The delay time in seconds to be corrected for. If None, the delay will be estimated from a linear fit of the unwrapped phase. Default is None.
+            alpha (float, optional): A constant phase offset. If None, the offset will be estimated to zero the phase at the center frequency. Default is None.
             fit_range (tuple, optional): The frequency range to use for the linear fit if delay is None. Default is None (i.e., the entire frequency range will be used for the fit).
             fraction (float, optional): The fraction of the data to use for the linear fit if delay is None. Default is 0.1 (i.e., the first and last 10% of the data will be used for the fit).
 
@@ -1150,6 +1150,7 @@ class FrequencyScanVNA(DataSetVNA):
         if self.name_mag+'_normalized' not in self.dependent_parameters.keys() or self.name_phase+'_normalized' not in self.dependent_parameters.keys():
             self.copy_dependent_parameter(self.name_mag, self.name_mag+'_normalized')
             self.copy_dependent_parameter(self.name_phase, self.name_phase+'_normalized')
+            self.cData_norm = self.cData
 
         freq = self.freq
         data = self.cData_norm
@@ -1166,7 +1167,8 @@ class FrequencyScanVNA(DataSetVNA):
             fit2 = linregress(freq[last:], phase[last:])
             delay = -(fit1.slope + fit2.slope) / 2 / (2*np.pi)
 
-        alpha = (phase[len(phase)//2] + 2*np.pi*delay*freq[0]) % (2*np.pi) + np.pi
+        if alpha is None:
+            alpha = (phase[len(phase)//2] + 2*np.pi*delay*freq[0]) % (2*np.pi)
         correction = np.exp(-1j * (alpha - 2*np.pi*freq*delay))
 
         try:
