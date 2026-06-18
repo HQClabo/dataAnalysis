@@ -39,7 +39,7 @@ import scipy
 from scipy.special import erf
 from numpy.polynomial.legendre import leggauss
 
-from dataAnalysis.base import DataSet, ConcatenatedDataSet
+from dataAnalysis.dataset import DataSet, ConcatenatedDataSet
 import numbers
 
 def compute_g_factor(freq:float|np.ndarray, B:float|np.ndarray):
