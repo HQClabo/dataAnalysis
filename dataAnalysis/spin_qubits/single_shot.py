@@ -6,7 +6,7 @@ class SingleShotMeasurement(DataSet):
     """
     Data analysis class for single shot experiment.
     """
-    def __init__(self, exp, run_id:int|list, station=None):
+    def __init__(self, exp, run_id:int|list, station=None, num_params:int=2):
         """
         Parameters:
             exp: The experiment handler.
@@ -28,14 +28,16 @@ class SingleShotMeasurement(DataSet):
             self.num_shot_g = dataset_g.independent_parameters['x']['values'] 
             self.tot_num_shots_g = len(self.num_shot_g)
             self.signal_mag_g = dataset_g.dependent_parameters['param_0']['values'].T
-            self.signal_phase_g = dataset_g.dependent_parameters['param_1']['values'].T
+            if num_params > 1:
+                self.signal_phase_g = dataset_g.dependent_parameters['param_1']['values'].T
 
             dataset_e = DataSet(exp=exp, run_id=run_id_e, station=station)
             self.time_e = dataset_e.independent_parameters['y']['values'] 
             self.num_shot_e = dataset_e.independent_parameters['x']['values'] 
             self.tot_num_shots_e = len(self.num_shot_e)
             self.signal_mag_e = dataset_e.dependent_parameters['param_0']['values'].T
-            self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
+            if num_params > 1:
+                self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
 
     def plot_average_time_trace_over_shots(self):
         """

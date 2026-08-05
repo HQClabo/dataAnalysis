@@ -62,7 +62,7 @@ class SpinQubitAnalysis(DataSet):
     """
     Data analysis class for .
     """
-    def __init__(self, exp, run_id, station=None, transpose = True):
+    def __init__(self, exp, run_id, station=None, transpose = True, acquisition_mode = 'demodulate'):
         self.transpose = transpose
         try:
             if isinstance(run_id, list) and not run_id:
@@ -72,13 +72,23 @@ class SpinQubitAnalysis(DataSet):
                 if transpose == True:
                     self.time = self.independent_parameters['y']['values'] 
                     self.bin = self.independent_parameters['x']['values']
-                    self.signal_mag = self.dependent_parameters['param_0']['values'].T
-                    self.signal_pha = self.dependent_parameters['param_1']['values'].T
+                    if acquisition_mode == 'demodulate':
+                        self.signal_mag = self.dependent_parameters['param_0']['values'].T
+                        self.signal_pha = self.dependent_parameters['param_1']['values'].T
+                    elif acquisition_mode == 'integrate':
+                        self.signal_mag = self.dependent_parameters['param_0']['values'].T
+                    else:
+                        raise ValueError(f"Invalid acquisition_mode: {acquisition_mode}. Must be 'demodulate' or 'integrate'.")
                 else:
                     self.time = self.independent_parameters['x']['values']
                     self.bin = self.independent_parameters['y']['values']
-                    self.signal_mag = self.dependent_parameters['param_0']['values']
-                    self.signal_pha = self.dependent_parameters['param_1']['values']
+                    if acquisition_mode == 'demodulate':
+                        self.signal_mag = self.dependent_parameters['param_0']['values'].T
+                        self.signal_pha = self.dependent_parameters['param_1']['values'].T
+                    elif acquisition_mode == 'integrate':
+                        self.signal_mag = self.dependent_parameters['param_0']['values'].T
+                    else:
+                        raise ValueError(f"Invalid acquisition_mode: {acquisition_mode}. Must be 'demodulate' or 'integrate'.")
             else:
                 self.time = []
                 self.bin = []
@@ -88,8 +98,13 @@ class SpinQubitAnalysis(DataSet):
                 for id in run_id:
                     super().__init__(exp=exp, run_id=id, station=station) 
                     self.bin.append(self.independent_parameters['x']['values'])
-                    self.signal_mag.append(self.dependent_parameters['param_0']['values'].T)
-                    self.signal_pha.append(self.dependent_parameters['param_1']['values'].T)
+                    if acquisition_mode == 'demodulate':
+                        self.signal_mag.append(self.dependent_parameters['param_0']['values'].T)
+                        self.signal_pha.append(self.dependent_parameters['param_1']['values'].T)
+                    elif acquisition_mode == 'integrate':
+                        self.signal_mag.append(self.dependent_parameters['param_0']['values'].T)
+                    else:
+                        raise ValueError(f"Invalid acquisition_mode: {acquisition_mode}. Must be 'demodulate' or 'integrate'.")
         except KeyError:
             super().__init__(exp=exp, run_id=run_id, station=station)
             self.time = self.independent_parameters['x']['values'] 
