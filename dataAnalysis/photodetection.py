@@ -3,7 +3,7 @@
 import numpy as np
 import lmfit
 from matplotlib import pyplot as plt
-from dataAnalysis.base import DataSet
+from dataAnalysis.dataset import DataSet
 from scipy.stats import linregress
 
 class EfficiencyFit(DataSet):

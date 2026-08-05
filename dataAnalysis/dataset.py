@@ -10,6 +10,7 @@ from qcodes.dataset.plotting import _rescale_ticks_and_units
 from qcodes.dataset.descriptions.param_spec import ParamSpec
 import dataAnalysis.resonator_fitting as resfit
 import dataAnalysis.utils as utils
+import warnings
 
 
 def val_to_index(array, value):
@@ -22,6 +23,11 @@ def val_to_index(array, value):
     
     Returns: An integer number representing the index at which the value is in the array.
     """
+    warnings.warn(
+        "The 'dataAnalysis.dataset.val_to_index' function is deprecated. Use dataAnalysis.utils.find_idx instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     start = array[0]
     step = array[1] - array[0]
     result =  int((value - start)/step)
@@ -32,6 +38,11 @@ def val_to_index(array, value):
     return result
 
 def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, other_arrays=None):
+    warnings.warn(
+        "The 'dataAnalysis.dataset.filter_array' function is deprecated. Use dataAnalysis.utils.filter_array instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     lower_index = val_to_index(main_array, lower_value) if lower_value else 0
     upper_index = val_to_index(main_array, upper_value) if upper_value else -1
     main_array = main_array[lower_index:upper_index]
@@ -39,6 +50,7 @@ def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, othe
         other_array = other_array[lower_index:upper_index]
 
     return main_array, other_arrays
+
 
 class DataSet():
     """
@@ -237,11 +249,12 @@ class DataSet():
             params_to_normalize = [params_to_normalize]
         if renormalize:
             params_temp = []
-            for param in params_to_normalize:
-                params_temp.append(param+'_normalized')
+            for param_name in params_to_normalize:
+                params_temp.append(param_name+'_normalized')
             params_to_normalize = params_temp
         else:
-            self.copy_dependent_parameter(param_name, param_name+'_normalized')
+            for param_name in params_to_normalize:
+                self.copy_dependent_parameter(param_name, param_name+'_normalized')
     
         # Create a dictionary mapping variable names to their values
         variables = {'data_bg': data_bg, 'x_bg': x_bg, 'axis': axis, 'operation': operation, 'interpolate': interpolate}

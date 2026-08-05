@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from dataAnalysis.base import DataSet
+from dataAnalysis.dataset import DataSet
 
 class SingleShotMeasurement(DataSet):
     """
