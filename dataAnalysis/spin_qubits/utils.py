@@ -104,36 +104,46 @@ class ChargeSensorAnalysis(DataSet):
         if filter:
             print(f"Filtering CS data with a moving average of window size {window_size}.")
             # Apply a moving average filter to the ydata. Need to cut initial and final points to avoid edge effects
-            self.ydata = np.convolve(self.ydata, np.ones(window_size)/window_size, mode='same')[window_size//2:-(window_size//2)]
-            self.xdata = self.xdata[window_size//2:-(window_size//2)]
-
+            self.ydata_filtered = np.convolve(self.ydata, np.ones(window_size)/window_size, mode='same')[window_size//2:-(window_size//2)]
+            self.xdata_filtered = self.xdata[window_size//2:-(window_size//2)]
+        else:
+            self.ydata_filtered = self.ydata
+            self.xdata_filtered = self.xdata
+            
         # Evaluate derivative
-        self.y_derivative = np.gradient(self.ydata)
+        self.y_derivative = np.gradient(self.ydata_filtered)
 
         # if filter:
         #     # Apply a moving average filter to the derivative
         #     self.y_derivative = np.convolve(self.y_derivative, np.ones(window_size)/window_size, mode='same')
 
         if shoulder == "left":
-            self.V_max_deriv = self.xdata[np.argmax(self.y_derivative)]
+            self.V_max_deriv = self.xdata_filtered[np.argmax(self.y_derivative)]
         elif shoulder == "right":
-            self.V_max_deriv = self.xdata[np.argmin(self.y_derivative)]
+            self.V_max_deriv = self.xdata_filtered[np.argmin(self.y_derivative)]
         else:
             raise ValueError("Invalid option for 'shoulder' parameter: must be either 'left' or 'right'.")
 
 
-        plt.figure()
-        plt.plot(self.xdata, self.ydata, '.', color='k', label='Data')
-        plt.xlabel("Gate voltage (V)")
-        plt.ylabel(f"{self.ydata_param_name} ({self.get_dependent_parameter_by_name(self.ydata_param_name)['paramspec'].unit})")
-        plt.axvline(x = self.V_max_deriv, ls="-", color = 'red')
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 5))
 
+        ax1.set_title("Raw data")
+        ax1.plot(self.xdata, self.ydata, '.', color='k', label='Data')
+        ax1.set_xlabel("Gate voltage (V)")
+        ax1.set_ylabel(f"{self.ydata_param_name} ({self.get_dependent_parameter_by_name(self.ydata_param_name)['paramspec'].unit})")
+        ax1.axvline(x = self.V_max_deriv, ls="-", color = 'red')
 
-        plt.figure()
-        plt.plot(self.xdata, self.y_derivative, '.', color='red', label='Derivative')
-        plt.xlabel("Gate voltage (V)")
-        plt.ylabel(f"{self.ydata_param_name} derivative ({self.get_dependent_parameter_by_name(self.ydata_param_name)['paramspec'].unit})")
-        plt.axvline(x = self.V_max_deriv, ls="-", color = 'red')
+        ax2.set_title("Filtered data (same as raw data if filter=False)")
+        ax2.plot(self.xdata_filtered, self.ydata_filtered, '.', color='k', label='Data')
+        ax2.set_xlabel("Gate voltage (V)")
+        ax2.set_ylabel(f"{self.ydata_param_name} ({self.get_dependent_parameter_by_name(self.ydata_param_name)['paramspec'].unit})")
+        ax2.axvline(x = self.V_max_deriv, ls="-", color = 'red')
+
+        ax3.set_title("Derivative of filtered data")
+        ax3.plot(self.xdata_filtered, self.y_derivative, '.', color='red', label='Derivative')
+        ax3.set_xlabel("Gate voltage (V)")
+        ax3.set_ylabel(f"{self.ydata_param_name} derivative ({self.get_dependent_parameter_by_name(self.ydata_param_name)['paramspec'].unit})")
+        ax3.axvline(x = self.V_max_deriv, ls="-", color = 'red')
 
         return self.V_max_deriv
 
