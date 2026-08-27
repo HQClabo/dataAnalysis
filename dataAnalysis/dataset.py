@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+from unicodedata import name
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
@@ -166,7 +167,7 @@ class DataSet():
         param = None
         first_match = True
         for key in self.independent_parameters.keys():
-            if name in self.independent_parameters[key]['paramspec'].name:
+            if name.lower() in self.independent_parameters[key]['paramspec'].name.lower():
                 if first_match:
                     param = self.independent_parameters[key]
                     first_match = False
@@ -178,7 +179,7 @@ class DataSet():
         param = None
         first_match = True
         for key in self.dependent_parameters.keys():
-            if name in self.dependent_parameters[key]['paramspec'].name:
+            if name.lower() in self.dependent_parameters[key]['paramspec'].name.lower():
                 if first_match:
                     param = self.dependent_parameters[key]
                     first_match = False
@@ -1761,5 +1762,105 @@ class BScanVNA(DataSetVNA):
         """
         return resfit.plot_kappavsfr(self.fit_report, label=label, log_y=log_y, threshold=threshold, freq_unit=freq_unit, **kwargs)            
 
+class DataSetRFOPX(DataSet):
+    """
+    Class for OPX RF measurements.
 
+    Args:
+        exp: Experiment.
+        run_id (optional): Run ID of the measurement. If not provided, the last measurement run is used.
+        station (optional): Station. 
+    """
+    def __init__(self, exp, run_id=None, station=None, lo_freq=0, if_freq=0):
+        super().__init__(exp=exp, run_id=run_id, station=station)
+        self._extract_data(lo_freq, if_freq)
 
+    def _extract_data(self, lo_freq, if_freq):
+        """
+        Extracts data from an OPX measurement.
+        """
+        self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
+        self.phase = self.get_dependent_parameter_by_name('phase')['values']
+        self.lo_freq = lo_freq
+        self.if_freq = if_freq
+        self.freq = self.lo_freq + self.if_freq
+
+    def shift_phase(self, shift_deg=180):
+        """
+        Shifts the phase of the data by a specified amount.
+
+        Args:
+            shift_deg (float): Amount to shift the phase in degrees.
+        """
+        phase = self.phase + shift_deg
+        # Constrain new phase to be between -180 and 180 degrees
+        phase = np.deg2rad(phase)
+        phase = np.arctan2(np.sin(phase), np.cos(phase))
+        phase = np.rad2deg(phase)
+        # Save raw phase first
+        self.phase_raw = self.phase
+        # Save new phase
+        self.phase = phase
+        self.dependent_parameters['param_1']['values'] = self.phase
+
+class FrequencyScanOPX(DataSetRFOPX):
+    """
+    Class for 1D OPX frequency sweeps.
+
+    Args:
+        exp: Experiment.
+        run_id (optional): Run ID of the measurement. If not provided, the last measurement run is used.
+        station (optional): Station. 
+        freq_range (optional): Tuple with the min and max frequencies of the range to use.
+    """
+    def __init__(self, exp, run_id=None, station=None, lo_freq=0):
+        # This will already extract self.mag, self.phase
+        super().__init__(exp=exp, run_id=run_id, station=station, lo_freq=lo_freq)
+        self.if_freq = self.get_independent_parameter_by_name('freq')['values']
+        self.freq = self.lo_freq + self.if_freq
+        
+
+    def slice_data(self, freq_range:tuple=None):
+        """
+        Extracts data from an OPX measurement.
+
+        Args:
+            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
+        """
+        self.if_freq = self.get_dependent_parameter_by_name('freq')['values']
+        self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
+        self.phase = self.get_dependent_parameter_by_name('phase')['values']
+
+    def remove_phase_delay(self):
+        """
+        Removes the phase delay from the data by fitting a linear function to the phase and subtracting it.
+        """
+
+        phase = np.deg2rad(self.phase)
+        freq = self.freq
+        # Fit linear function to unwrapped phase
+        p = np.polyfit(freq, phase, 1)
+        # Subtract linear fit from unwrapped phase
+        phase_corrected = phase - np.polyval(p, freq)
+        self.phase_delay_fit = p
+        # Wrap corrected phase back to [-pi, pi]
+        phase_corrected = np.rad2deg(np.arctan2(np.sin(phase_corrected), np.cos(phase_corrected)))
+        # Save raw phase first and update phase in dependent parameters
+        self.phase_raw = self.phase
+        self.copy_dependent_parameter('param_1', 'param_1_raw')
+        self.dependent_parameters['param_1']['values'] = phase_corrected
+        self.phase = phase_corrected
+
+    def plot_mag_and_phase(self):
+        """
+        Plots the magnitude and phase of the data.
+        """
+        fig, ax = plt.subplots(2, 1, sharex=True)
+        ax[0].plot(self.freq, self.mag)
+        ax[0].set_ylabel('Magnitude (V)')
+        ax[1].plot(self.freq, self.phase)
+        ax[1].set_ylabel('Phase (deg)')
+        ax[1].set_xlabel('Frequency (Hz)')
+        plt.show()
+
+        
