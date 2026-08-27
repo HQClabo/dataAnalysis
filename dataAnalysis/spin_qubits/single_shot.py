@@ -6,22 +6,25 @@ class SingleShotMeasurement(DataSet):
     """
     Data analysis class for single shot experiment.
     """
-    def __init__(self, exp, run_id:int|list, station=None, num_params:int=2):
+    def __init__(self, exp, run_id:int|list=None, station=None, num_params:int=2):
         """
         Parameters:
             exp: The experiment handler.
             run_id (int, list): One single or a list of two integers with the meaning [run_id_ground, run_id_excited]
         
         """
-        if isinstance(run_id, int):    # one single run_id provided
+        if isinstance(run_id, int) or run_id == None:    # one single run_id provided
             super().__init__(exp=exp, run_id=run_id, station=station)
             self.time = self.independent_parameters['y']['values'] 
             self.num_shot = self.independent_parameters['x']['values']
             self.signal_mag = self.dependent_parameters['param_0']['values'].T
             self.signal_pha = self.dependent_parameters['param_1']['values'].T
+            self.num_states = 1
         elif isinstance(run_id, list):  
             assert len(run_id) == 2, "run_id must be either an integer or a list of two integers (one for ground state, one for excited state)"
             run_id_g, run_id_e = run_id[0], run_id[1]
+            self.num_states = 2
+            self.run_id = [run_id_g, run_id_e]
 
             dataset_g = DataSet(exp=exp, run_id=run_id_g, station=station)
             self.time_g = dataset_g.independent_parameters['y']['values'] 
@@ -43,17 +46,31 @@ class SingleShotMeasurement(DataSet):
         """
         Calculate the average time trace over all the shots for ground and excited state data and plot it.
         """
-        fig = plt.figure(figsize=(6.5, 3.0))
-        plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground avg")
-        plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited avg")
-        plt.xlabel("Time (ns)")
-        plt.ylabel("Magnitude (a.u.)")
-        plt.legend(frameon=False)
-        plt.grid(alpha=0.25, linestyle="--")
-        plt.tight_layout()
-        plt.show()
-
-        return fig, fig.axes[0]
+        if self.num_states == 1:
+            fig, axs = plt.subplots(1, 2, figsize=(10.0, 3.0))
+            axs[0].scatter(self.time, np.mean(self.signal_mag, axis=0), s=6, alpha=0.7)
+            axs[1].scatter(self.time, np.mean(self.signal_pha, axis=0), s=6, alpha=0.7)
+            axs[0].set_xlabel("Time (ns)")
+            axs[0].set_ylabel("Magnitude (V)")
+            axs[1].set_xlabel("Time (ns)")
+            axs[1].set_ylabel("Phase (deg)")
+            axs[0].set_title(f"Run ID: {self.run_id}")
+            axs[1].set_title(f"Run ID: {self.run_id}")
+            plt.tight_layout()
+            plt.show()
+            return fig, axs
+        elif self.num_states == 2:
+            fig = plt.figure(figsize=(6.5, 3.0))
+            fig.suptitle(f"Run ID: {self.run_id}")
+            plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground mag")
+            plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited mag")
+            plt.xlabel("Time (ns)")
+            plt.ylabel("Magnitude (a.u.)")
+            plt.legend(frameon=False)
+            plt.grid(alpha=0.25, linestyle="--")
+            plt.tight_layout()
+            plt.show()
+            return fig, fig.axes
         
     def build_histogram_from_time_trace(self, num_bins: int, time_index: int = 0, plot_average_time_trace=False, clip_quantiles:tuple=(0,1)):
         """
