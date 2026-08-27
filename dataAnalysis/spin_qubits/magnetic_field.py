@@ -47,7 +47,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         super().normalize_data_from_average(params_to_normalize, axis, operation)
         self.mag_norm = self.dependent_parameters['param_0_normalized']['values']
 
-    def find_peaks_scipy(self, peaks_to_save, search_range=None, do_plot=True, **scipy_kwargs):
+    def find_peaks_scipy(self, peaks_to_save, search_range=None, do_plot=True, find_dips=False, **scipy_kwargs):
         """
         Find peaks in frequency data using scipy's find_peaks function and store results.
         This method identifies peaks in the magnitude spectrum across all angle measurements,
@@ -99,6 +99,10 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         else:
             data = self.mag
 
+        if find_dips:
+            data = -data
+            # print(data)
+
         # Initialize results dict
         num_freqs = len(peaks_to_save)
         self.results = {}
@@ -129,7 +133,7 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             for f, color in zip(peak_freqs[:3], colors[:3]):
                 plt.scatter(self.angle[angle_idx], f, color=color, alpha=0.4, lw=0.1)
 
-    def find_single_resonance(self, search_range=None):
+    def find_single_resonance(self, search_range=None, find_dips=False, qubit_idx_to_save=1):
         if search_range:
             low_freq = search_range[0]
             high_freq = search_range[1]
@@ -145,7 +149,10 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
             data = self.mag_norm
         else:
             data = self.mag
-        
+
+        if find_dips:
+            data = -data
+    
         num_angles = len(self.angle)
         idx_array = np.ones(num_angles, dtype=int)
         f_array = np.zeros_like(idx_array, dtype=np.float64)
@@ -159,12 +166,11 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         
         if not hasattr(self, "results"):
             self.results = {}
-        for qubit_idx in range(1, 10): # 10 just a large number, will look for 'f1', 'f2', etc and the first label not present yet will be used
-            if f'f{qubit_idx}' not in self.results:
-                self.results[f'f{qubit_idx}'] = f_array
-                self.results[f'idx{qubit_idx}'] = idx_array
-                return
-
+        if f'f{qubit_idx_to_save}' in self.results:
+            print(Warning(f"Overwriting existing results for f{qubit_idx_to_save}"))
+        self.results[f'f{qubit_idx_to_save}'] = f_array
+        self.results[f'idx{qubit_idx_to_save}'] = idx_array
+            
     def find_two_resonances(self, follow_resonances=False, search_center=None, search_span=None, search_range=None, min_separation=1, sort_by_freq = True):
         """
         Find two resonance peaks for each angle in the object's frequency-angle dataset.
@@ -320,6 +326,10 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
         for i in range(idx_low, idx_high):
             self.results['f1'][i], self.results['f2'][i] = self.results['f2'][i], self.results['f1'][i]
 
+    def discard_resonances(self, qubit_idx:int, angle_indices_to_discard:list):
+        for idx_to_discard in angle_indices_to_discard:
+            self.results[f'f{qubit_idx}'][idx_to_discard] = None
+
     def plot_resonances(self, **kwargs):
         if hasattr(self, 'mag_fft'):
             self.plot_2D('param_0_fft')
@@ -330,8 +340,12 @@ class BFieldInPlaneAngleSweep(ConcatenatedDataSet, DataSet):
 
         colors = ['red', 'yellow', 'green', 'blue']
         for qubit_idx, color in zip(range(1, 5), colors):
+            if 'alpha' in kwargs:
+                alpha = kwargs.pop('alpha')
+            else:
+                alpha = 0.5
             try:
-                plt.scatter(self.angle, self.results[f'f{qubit_idx}'], lw=1, alpha=0.3, color=color, **kwargs)
+                plt.scatter(self.angle, self.results[f'f{qubit_idx}'], lw=1, alpha=alpha, color=color, **kwargs)
             except:
                 return
 
@@ -446,7 +460,7 @@ class GTensorCharacterization:
         else:
             raise ValueError("'type' must be either 'xy', 'yz' or 'xz'.")
     
-    def fit_g_tensor(self, qubit:int=1, method='leastsq', guesses_dict={}, limits_dict={}, **kwargs):
+    def fit_g_tensor(self, qubit:int=1, method='leastsq', guesses_dict={}, limits_dict={}, vary_params_dict={}, **kwargs):
         """
         Fit the g tensor using the provided in-plane sweep measurements. Such measurements must be added to the class before running this method using the method 'add_measurement'.
 
@@ -509,8 +523,7 @@ class GTensorCharacterization:
 
         #----------------------------- Fit -----------------------------
         
-        #fit_result, model = _fit_g_factors_with_B_offsets(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, **kwargs) # Fit taking into account the offsets
-        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, **kwargs)
+        fit_result, model = _fit_g_factors(Bx_array, By_array, Bz_array, g_factor_array, method=method, guesses_dict=guesses_dict, limits_dict=limits_dict, vary_params_dict=vary_params_dict, **kwargs)
         self.fit_result = fit_result
         self.model = model
         print(fit_result.fit_report())
@@ -747,13 +760,13 @@ def g_tensor_g_frame_to_lab_frame(gx, gy, gz, phi, theta, zeta):
     R = g_frame_to_lab_frame_rotation(phi, theta, zeta)
     return R @ g @ np.linalg.inv(R)
 
-def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zeta):
+def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zeta, Bx_offset, By_offset, Bz_offset):
     """
     Model for the g factor in the lab frame, given a certain applied magnetic field.
     """
     g_factor_array = []
     for Bx, By, Bz in zip(Bx_lab, By_lab, Bz_lab):
-        B_vector = np.vstack((Bx, By, Bz))
+        B_vector = np.vstack((Bx - Bx_offset, By - By_offset, Bz - Bz_offset))
         g_matrix_lab_frame = g_tensor_g_frame_to_lab_frame(gx, gy, gz, phi, theta, zeta)
         gB_product = np.dot(g_matrix_lab_frame, B_vector)
         B_norm = np.linalg.norm(B_vector)
@@ -763,17 +776,20 @@ def model_g_factor_lab_frame(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zet
 
     return g_factor_array
 
-def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits_dict={}, method='leastsq'):
+def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits_dict={}, vary_params_dict={}, method='leastsq'):
     params = lmfit.Parameters()
 
     default_guesses = {
-        'gx': 0.10,
-        'gy': 0.35,
-        'gz': 10.0,
-        'phi': 0,
-        'theta': 1.5,
-        'zeta': 0,
-    }
+            'gx': 0.10,
+            'gy': 0.35,
+            'gz': 10.0,
+            'phi': 0,
+            'theta': 1.5,
+            'zeta': 0,
+            'Bx_offset':0,
+            'By_offset':0,
+            'Bz_offset':0
+        }
     default_limits = {
         'gx': (0, 1),
         'gy': (0, 1),
@@ -781,12 +797,27 @@ def _fit_g_factors(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits
         'phi': (-180, 180),
         'theta': (0, 180),
         'zeta': (-180, 180),
-    }
+        'Bx_offset':(-500e-6, 500e-6),
+        'By_offset':(-500e-6, 500e-6),
+        'Bz_offset':(-500e-6, 500e-6),
+        }
+    default_vary_params = {
+        'gx': True, 
+        'gy': True,
+        'gz': True,
+        'phi': True,
+        'theta': True,
+        'zeta': True,
+        'Bx_offset': False,
+        'By_offset': False,
+        'Bz_offset': False,
+        }
 
-    for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta']:
+    for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta', 'Bx_offset', 'By_offset', 'Bz_offset']:
         guess = guesses_dict[param_name] if param_name in guesses_dict.keys() else default_guesses[param_name]
         limits = limits_dict[param_name] if param_name in limits_dict.keys() else default_limits[param_name]
-        par = lmfit.Parameter(param_name, value=guess, min=limits[0], max=limits[1])
+        vary = vary_params_dict[param_name] if param_name in vary_params_dict.keys() else default_vary_params[param_name]
+        par = lmfit.Parameter(param_name, value=guess, min=limits[0], max=limits[1], vary=vary)
         params[param_name] = par
 
     model = lmfit.Model(model_g_factor_lab_frame, independent_vars=["Bx_lab", "By_lab", "Bz_lab"])
@@ -806,58 +837,3 @@ def plot_polar(angles_rad, r, style='data', fig=None, ax=None, label=None, plot_
         legend.set_frame_on(False)
 
     return fig, ax, plot
-
-### Under Construction by Wonjin ###
-# Trying to build a fitting model that takes into account the Bx, By, Bz offsets. 
-
-def model_g_factor_lab_frame_with_B_offsets(Bx_lab, By_lab, Bz_lab, gx, gy, gz, phi, theta, zeta, Bx_offset, By_offset, Bz_offset):
-    """
-    Model for the g factor in the lab frame, given a certain applied magnetic field.
-    """
-    g_factor_array = []
-    for Bx, By, Bz in zip(Bx_lab, By_lab, Bz_lab):
-        B_vector = np.vstack((Bx - Bx_offset, By - By_offset, Bz - Bz_offset))
-        g_matrix_lab_frame = g_tensor_g_frame_to_lab_frame(gx, gy, gz, phi, theta, zeta)
-        gB_product = np.dot(g_matrix_lab_frame, B_vector)
-        B_norm = np.linalg.norm(B_vector)
-        gB_norm = np.linalg.norm(gB_product)
-        g_factor_array.append(gB_norm/B_norm)
-    g_factor_array = np.array(g_factor_array)
-
-    return g_factor_array
-
-def _fit_g_factors_with_B_offsets(Bx_lab, By_lab, Bz_lab, g_factor_lab, guesses_dict={}, limits_dict={}, method='leastsq'):
-    params = lmfit.Parameters()
-
-    default_guesses = {
-        'gx': 0.10,
-        'gy': 0.35,
-        'gz': 10.0,
-        'phi': 0,
-        'theta': 1.5,
-        'zeta': 0,
-        'Bx_offset':0,
-        'By_offset':0,
-        'Bz_offset':0
-    }
-    default_limits = {
-        'gx': (0, 1),
-        'gy': (0, 1),
-        'gz': (3, 30),
-        'phi': (-180, 180),
-        'theta': (0, 180),
-        'zeta': (-180, 180),
-        'Bx_offset':(-300e-6, 300e-6),
-        'By_offset':(-300e-6, 300e-6),
-        'Bz_offset':(-300e-6, 300e-6),
-    }
-
-    for param_name in ['gx', 'gy', 'gz', 'phi', 'theta', 'zeta', 'Bx_offset', 'By_offset', 'Bz_offset']:
-        guess = guesses_dict[param_name] if param_name in guesses_dict.keys() else default_guesses[param_name]
-        limits = limits_dict[param_name] if param_name in limits_dict.keys() else default_limits[param_name]
-        par = lmfit.Parameter(param_name, value=guess, min=limits[0], max=limits[1])
-        params[param_name] = par
-
-    model = lmfit.Model(model_g_factor_lab_frame_with_B_offsets, independent_vars=["Bx_lab", "By_lab", "Bz_lab"])
-    fit_result = model.fit(g_factor_lab, params, Bx_lab=Bx_lab, By_lab=By_lab, Bz_lab=Bz_lab, method=method)
-    return fit_result, model
