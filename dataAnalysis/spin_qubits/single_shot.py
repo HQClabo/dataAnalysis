@@ -13,6 +13,7 @@ class SingleShotMeasurement(DataSet):
             run_id (int, list): One single or a list of two integers with the meaning [run_id_ground, run_id_excited]
         
         """
+        self.num_params = num_params
         if isinstance(run_id, int) or run_id == None:    # one single run_id provided
             super().__init__(exp=exp, run_id=run_id, station=station)
             self.time = self.independent_parameters['y']['values'] 
@@ -31,7 +32,7 @@ class SingleShotMeasurement(DataSet):
             self.num_shot_g = dataset_g.independent_parameters['x']['values'] 
             self.tot_num_shots_g = len(self.num_shot_g)
             self.signal_mag_g = dataset_g.dependent_parameters['param_0']['values'].T
-            if num_params > 1:
+            if self.num_params == 2:
                 self.signal_phase_g = dataset_g.dependent_parameters['param_1']['values'].T
 
             dataset_e = DataSet(exp=exp, run_id=run_id_e, station=station)
@@ -39,38 +40,64 @@ class SingleShotMeasurement(DataSet):
             self.num_shot_e = dataset_e.independent_parameters['x']['values'] 
             self.tot_num_shots_e = len(self.num_shot_e)
             self.signal_mag_e = dataset_e.dependent_parameters['param_0']['values'].T
-            if num_params > 1:
+            if self.num_params == 2:
                 self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
 
     def plot_average_time_trace_over_shots(self):
         """
         Calculate the average time trace over all the shots for ground and excited state data and plot it.
         """
-        if self.num_states == 1:
-            fig, axs = plt.subplots(1, 2, figsize=(10.0, 3.0))
-            axs[0].scatter(self.time, np.mean(self.signal_mag, axis=0), s=6, alpha=0.7)
-            axs[1].scatter(self.time, np.mean(self.signal_pha, axis=0), s=6, alpha=0.7)
-            axs[0].set_xlabel("Time (ns)")
-            axs[0].set_ylabel("Magnitude (V)")
-            axs[1].set_xlabel("Time (ns)")
-            axs[1].set_ylabel("Phase (deg)")
-            axs[0].set_title(f"Run ID: {self.run_id}")
-            axs[1].set_title(f"Run ID: {self.run_id}")
-            plt.tight_layout()
-            plt.show()
-            return fig, axs
-        elif self.num_states == 2:
-            fig = plt.figure(figsize=(6.5, 3.0))
-            fig.suptitle(f"Run ID: {self.run_id}")
-            plt.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground mag")
-            plt.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited mag")
-            plt.xlabel("Time (ns)")
-            plt.ylabel("Magnitude (a.u.)")
-            plt.legend(frameon=False)
-            plt.grid(alpha=0.25, linestyle="--")
-            plt.tight_layout()
-            plt.show()
-            return fig, fig.axes
+        if self.num_params == 1:
+            if self.num_states == 1:
+                fig, ax = plt.subplots(1, 1, figsize=(7.0, 3.0))
+                ax.scatter(self.time, np.mean(self.signal, axis=0), s=6, alpha=0.7)
+                ax.set_xlabel("Time (ns)")
+                ax.set_ylabel("Amplitude (V)")
+                ax.set_title(f"Run ID: {self.run_id}")
+                plt.tight_layout()
+                return fig, ax
+            elif self.num_states == 2:
+                fig, ax = plt.subplots(1, 1, figsize=(7.0, 3.0))
+                ax.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label='Ground state')
+                ax.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label='Excited state')
+                ax.set_xlabel("Time (ns)")
+                ax.set_ylabel("Amplitude (V)")
+                ax.set_title(f"Run ID: {self.run_id}")
+                ax.legend(frameon=False, bbox_to_anchor=(1.02, 1))
+                ax.grid(alpha=0.25, linestyle="--")
+                ax.grid(alpha=0.25, linestyle="--")
+                plt.tight_layout()
+                return fig, fig.axes
+        elif self.num_params == 2:  
+            if self.num_states == 1:
+                fig, axs = plt.subplots(1, 2, figsize=(10.0, 3.0))
+                axs[0].scatter(self.time, np.mean(self.signal_mag, axis=0), s=6, alpha=0.7)
+                axs[1].scatter(self.time, np.mean(self.signal_pha, axis=0), s=6, alpha=0.7)
+                axs[0].set_xlabel("Time (ns)")
+                axs[0].set_ylabel("Magnitude (V)")
+                axs[1].set_xlabel("Time (ns)")
+                axs[1].set_ylabel("Phase (deg)")
+                axs[0].set_title(f"Run ID: {self.run_id}")
+                axs[1].set_title(f"Run ID: {self.run_id}")
+                plt.tight_layout()
+                plt.show()
+                return fig, axs
+            elif self.num_states == 2:
+                fig, axes = plt.subplots(2, 1, figsize=(7, 5), sharex=True)
+                fig.suptitle(f"Run ID: {self.run_id}")
+                axes[0].scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground state")
+                axes[0].scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited state")
+                axes[1].scatter(self.time_g, np.mean(self.signal_phase_g, axis=0), s=6, alpha=0.7, label="Ground state")
+                axes[1].scatter(self.time_e, np.mean(self.signal_phase_e, axis=0), s=6, alpha=0.7, label="Excited state")
+                axes[1].set_xlabel("Time (ns)")
+                axes[0].set_ylabel("Magnitude (V)")
+                axes[1].set_ylabel("Phase (deg)")
+                axes[0].legend(frameon=False, bbox_to_anchor=(1.02, 1))
+                axes[0].grid(alpha=0.25, linestyle="--")
+                axes[0].grid(alpha=0.25, linestyle="--")
+                plt.tight_layout()
+                plt.show()
+                return fig, fig.axes
         
     def build_histogram_from_time_trace(self, num_bins: int, time_index: int = 0, plot_average_time_trace=False, clip_quantiles:tuple=(0,1)):
         """
