@@ -819,15 +819,26 @@ class DataSet():
             z_plot = z_param['values'][y_slice, x_slice]
 
             fig, ax = plt.subplots()
-            ax, cb = qc.dataset.plotting.plot_on_a_plain_grid(x_plot, y_plot, z_plot, ax, cmap=cmap, **kwargs)
-            ax.set_xlabel(x_param['paramspec'].label + f" ({x_param['paramspec'].unit})")
-            ax.set_ylabel(y_param['paramspec'].label + f" ({y_param['paramspec'].unit})")
-            cb.set_label(z_param['paramspec'].label + f" ({z_param['paramspec'].unit})")
-            ax.set_title(plot_title)
-            figs.append(fig)
-            axes.append(ax)
-            cbs.append(cb)
-            ds_plot_data = self._generate_DSPlotData(x_param, y_param, z_param)
+            if transpose:
+                ax, cb = qc.dataset.plotting.plot_on_a_plain_grid(y_plot, x_plot, z_plot, ax, cmap=cmap, **kwargs)
+                ax.set_xlabel(y_param['paramspec'].label + f" ({y_param['paramspec'].unit})")
+                ax.set_ylabel(x_param['paramspec'].label + f" ({x_param['paramspec'].unit})")
+                cb.set_label(z_param['paramspec'].label + f" ({z_param['paramspec'].unit})")
+                ax.set_title(plot_title)
+                figs.append(fig)
+                axes.append(ax)
+                cbs.append(cb)
+                ds_plot_data = self._generate_DSPlotData(y_param, x_param, z_param)
+            else:
+                ax, cb = qc.dataset.plotting.plot_on_a_plain_grid(x_plot, y_plot, z_plot, ax, cmap=cmap, **kwargs)
+                ax.set_xlabel(x_param['paramspec'].label + f" ({x_param['paramspec'].unit})")
+                ax.set_ylabel(y_param['paramspec'].label + f" ({y_param['paramspec'].unit})")
+                cb.set_label(z_param['paramspec'].label + f" ({z_param['paramspec'].unit})")
+                ax.set_title(plot_title)
+                figs.append(fig)
+                axes.append(ax)
+                cbs.append(cb)
+                ds_plot_data = self._generate_DSPlotData(x_param, y_param, z_param)
             _rescale_ticks_and_units(ax, ds_plot_data, cb)
         return figs, axes, cbs
 
@@ -1827,7 +1838,7 @@ class FrequencyScanOPX(DataSetRFOPX):
         Args:
             freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
         """
-        self.if_freq = self.get_dependent_parameter_by_name('freq')['values']
+        self.if_freq = self.get_independent_parameter_by_name('freq')['values']
         self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
         self.phase = self.get_dependent_parameter_by_name('phase')['values']
 
@@ -1855,12 +1866,30 @@ class FrequencyScanOPX(DataSetRFOPX):
         """
         Plots the magnitude and phase of the data.
         """
-        fig, ax = plt.subplots(2, 1, sharex=True)
-        ax[0].plot(self.freq, self.mag)
-        ax[0].set_ylabel('Magnitude (V)')
-        ax[1].plot(self.freq, self.phase)
-        ax[1].set_ylabel('Phase (deg)')
-        ax[1].set_xlabel('Frequency (Hz)')
-        plt.show()
+        fig, axes = plt.subplots(1, 2, sharex=True, figsize=(12, 4))
+        fig.suptitle(f'Run ID {self.run_id}', y=1.02)
+
+        axes[0].plot(self.if_freq/1e6, self.mag)
+        axes[0].set_ylabel('Magnitude (V)')
+        axes[0].set_xlabel('IF Frequency (MHz)')
+        # Add secondary x-axis at the top
+        secax = axes[0].secondary_xaxis('top', functions=(
+            lambda if_freq_MHz: (if_freq_MHz*1e6 + self.lo_freq)/1e9, 
+            lambda rf_freq_GHZ: (rf_freq_GHZ*1e9 - self.lo_freq)/1e6
+            ))
+        secax.set_xlabel('RF Frequency (GHz)')
+
+        axes[1].plot(self.if_freq/1e6, self.phase)
+        axes[1].set_ylabel('Phase (deg)')
+        axes[1].set_xlabel('IF Frequency (MHz)')
+        # Add secondary x-axis at the top
+        secax = axes[1].secondary_xaxis('top', functions=(
+                    lambda if_freq_MHz: (if_freq_MHz*1e6 + self.lo_freq)/1e9, 
+                    lambda rf_freq_GHZ: (rf_freq_GHZ*1e9 - self.lo_freq)/1e6
+                    ))
+        secax.set_xlabel('RF Frequency (GHz)')
+        
+        return fig, axes
+
 
         
