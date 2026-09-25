@@ -198,10 +198,12 @@ class STOscillationsVSDetuning(DataSet):
             self.fft_phase = self.dependent_parameters['param_1_fft']['values']
             self.fft_freq = self.get_independent_parameter_by_name('freq')['values']
             if flip_in_detuning:
+                self.mag = np.flip(self.mag, axis=1)
+                self.phase = np.flip(self.phase, axis=1)
                 self.fft_mag = np.flip(self.fft_mag, axis=1)
                 self.fft_phase = np.flip(self.fft_phase, axis=1)
         else:
-            raise ValueError("Invalid format. Must be either 'amplitude' or 'mag-phase'.")
+            raise ValueError(f"Invalid format '{format}'. Must be either 'amplitude' or 'mag-phase'.")
 
     def plot(self, show_opx_detuning=True):
         if self.format == 'amplitude':
@@ -257,5 +259,78 @@ class STOscillationsVSDetuning(DataSet):
             ax12.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
             ax12.set_xlabel('OPX Detuning (mV)')
 
+
+class Measurement2DVSDetuning(DataSet):
+    def __init__(self, exp, run_id=None, detuning=None, detuning_axis=1, format='amplitude', flip_in_detuning=True):
+        """
+        Args:
+            exp: Experiment
+            run_id: Run id
+            detuning: Actual detuning array at the device
+            detuning_axis: 1 if the detuning is on the x axis in the plotter, 0 if on the y axis
+            format: Either 'amplitude' or 'mag-phase'
+            flip_in_detuning: True if the opx detuning has opposite sign as the real detuning
+        """
+        super().__init__(exp=exp, run_id=run_id)
+        if detuning_axis == 1:
+            self.opx_detuning = self.independent_parameters['x']['values']
+            self.detuning = detuning
+            self.other_axis = self.independent_parameters['y']['values']
+            self.other_axis_param = self.independent_parameters['y']
+        elif detuning_axis == 0:
+            self.opx_detuning = self.independent_parameters['y']['values']
+            self.detuning = detuning
+            self.other_axis = self.independent_parameters['x']['values']
+            self.other_axis_param = self.independent_parameters['x']
+        self.format = format
+        if format == 'amplitude':
+            self.signal = self.get_dependent_parameter_by_name('Amplitude')['values']
+            if flip_in_detuning:
+                self.signal = np.flip(self.signal, axis=detuning_axis)
+        elif format == 'mag-phase':
+            self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
+            self.phase = self.get_dependent_parameter_by_name('Phase')['values']
+            self.fft_mag = self.dependent_parameters['param_0_fft']['values']
+            self.fft_phase = self.dependent_parameters['param_1_fft']['values']
+            self.fft_freq = self.get_independent_parameter_by_name('freq')['values']
+            if flip_in_detuning:
+                self.mag = np.flip(self.mag, axis=detuning_axis)
+                self.phase = np.flip(self.phase, axis=detuning_axis)
         else:
-            raise ValueError("Data format not recognized. Must be either 'amplitude' or 'mag-phase'.")
+            raise ValueError(f"Invalid format '{format}'. Must be either 'amplitude' or 'mag-phase'.")
+
+    def plot(self, show_opx_detuning=True):
+        if self.format == 'amplitude':
+            fig, ax = plt.subplots(1,1)
+            fig.suptitle(f'Run #{self.run_id}', y=1.01)
+    
+            plot = ax.pcolormesh(self.detuning*1e3, self.other_axis, self.signal*1e3)
+            fig.colorbar(plot, label='Amplitude (mV)')
+    
+            ax.set_ylabel(f"{self.other_axis_param['paramspec'].label} ({self.other_axis_param['paramspec'].unit})")
+            ax.set_xlabel('Detuning (mV)')
+            if show_opx_detuning:
+                ax2 = ax.twiny()
+                ax2.set_xlim(self.opx_detuning[-1]*1e3, self.opx_detuning[0]*1e3)
+                ax2.set_xlabel('OPX Detuning (mV)')
+            plt.show()
+    
+        elif self.format == 'mag-phase':
+    
+            fig, ax = plt.subplots(1, 2, figsize=(6.5, 4.0), sharex=True)
+            fig.suptitle(f'Run #{self.run_id}', y=1.01)
+    
+            plot1 = ax[0].pcolormesh(self.detuning*1e3, self.other_axis, self.mag*1e3)
+            fig.colorbar(plot1, ax=ax[0], label='Magnitude (mV)')
+            plot2 = ax[1].pcolormesh(self.detuning*1e3, self.other_axis, self.phase)
+            fig.colorbar(plot2, ax=ax[1], label='Phase (deg)')
+    
+            ax[1].set_ylabel('Evolution time (ns)')
+            ax[1].set_xlabel('Detuning (mV)')
+            ax02 = ax[0].twiny()
+            ax02.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
+            ax02.set_xlabel('OPX Detuning (mV)')
+    
+            ax12 = ax[1].twiny()
+            ax12.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
+            ax12.set_xlabel('OPX Detuning (mV)')
