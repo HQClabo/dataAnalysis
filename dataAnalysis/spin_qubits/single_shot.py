@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import qcodes as qc
 from dataAnalysis.dataset import DataSet
 
 class SingleShotMeasurement(DataSet):
@@ -25,6 +26,9 @@ class SingleShotMeasurement(DataSet):
             assert len(run_id) == 2, "run_id must be either an integer or a list of two integers (one for ground state, one for excited state)"
             run_id_g, run_id_e = run_id[0], run_id[1]
             self.num_states = 2
+            if run_id_g == None and run_id_e == None:
+                run_id_e = exp.last_counter
+                run_id_g = exp.last_counter-1
             self.run_id = [run_id_g, run_id_e]
 
             dataset_g = DataSet(exp=exp, run_id=run_id_g, station=station)
@@ -49,7 +53,7 @@ class SingleShotMeasurement(DataSet):
         """
         if self.num_params == 1:
             if self.num_states == 1:
-                fig, ax = plt.subplots(1, 1, figsize=(7.0, 3.0))
+                fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
                 ax.scatter(self.time, np.mean(self.signal, axis=0), s=6, alpha=0.7)
                 ax.set_xlabel("Time (ns)")
                 ax.set_ylabel("Amplitude (V)")
@@ -57,7 +61,7 @@ class SingleShotMeasurement(DataSet):
                 plt.tight_layout()
                 return fig, ax
             elif self.num_states == 2:
-                fig, ax = plt.subplots(1, 1, figsize=(7.0, 3.0))
+                fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
                 ax.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label='Ground state')
                 ax.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label='Excited state')
                 ax.set_xlabel("Time (ns)")
