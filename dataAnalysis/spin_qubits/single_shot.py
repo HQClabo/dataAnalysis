@@ -3,25 +3,24 @@ import matplotlib.pyplot as plt
 import qcodes as qc
 from dataAnalysis.dataset import DataSet
 
-class SingleShotMeasurement(DataSet):
+class TimeTraceMeasurement(DataSet):
     """
     Data analysis class for single shot experiment.
     """
-    def __init__(self, exp, run_id:int|list=None, station=None, num_params:int=2):
+    def __init__(self, exp, run_id:int, param = 'param_0'):
         """
         Parameters:
             exp: The experiment handler.
             run_id (int, list): One single or a list of two integers with the meaning [run_id_ground, run_id_excited]
         
         """
-        self.num_params = num_params
         if isinstance(run_id, int) or run_id == None:    # one single run_id provided
-            super().__init__(exp=exp, run_id=run_id, station=station)
+            super().__init__(exp=exp, run_id=run_id)
+            self.num_states = 1
             self.time = self.independent_parameters['y']['values'] 
             self.num_shot = self.independent_parameters['x']['values']
-            self.signal_mag = self.dependent_parameters['param_0']['values'].T
-            self.signal_pha = self.dependent_parameters['param_1']['values'].T
-            self.num_states = 1
+            self.signal = self.dependent_parameters[param]['values'].T
+            self.signal_paramspec = self.dependent_parameters[param]['paramspec']
         elif isinstance(run_id, list):  
             assert len(run_id) == 2, "run_id must be either an integer or a list of two integers (one for ground state, one for excited state)"
             run_id_g, run_id_e = run_id[0], run_id[1]
@@ -31,84 +30,52 @@ class SingleShotMeasurement(DataSet):
                 run_id_g = exp.last_counter-1
             self.run_id = [run_id_g, run_id_e]
 
-            dataset_g = DataSet(exp=exp, run_id=run_id_g, station=station)
+            dataset_g = DataSet(exp=exp, run_id=run_id_g)
             self.time_g = dataset_g.independent_parameters['y']['values'] 
             self.num_shot_g = dataset_g.independent_parameters['x']['values'] 
             self.tot_num_shots_g = len(self.num_shot_g)
-            self.signal_mag_g = dataset_g.dependent_parameters['param_0']['values'].T
-            if self.num_params == 2:
-                self.signal_phase_g = dataset_g.dependent_parameters['param_1']['values'].T
+            self.signal_g = dataset_g.dependent_parameters[param]['values'].T
+            self.signal_g_paramspec = dataset_g.dependent_parameters[param]['paramspec']
 
-            dataset_e = DataSet(exp=exp, run_id=run_id_e, station=station)
+            dataset_e = DataSet(exp=exp, run_id=run_id_e)
             self.time_e = dataset_e.independent_parameters['y']['values'] 
             self.num_shot_e = dataset_e.independent_parameters['x']['values'] 
             self.tot_num_shots_e = len(self.num_shot_e)
-            self.signal_mag_e = dataset_e.dependent_parameters['param_0']['values'].T
-            if self.num_params == 2:
-                self.signal_phase_e = dataset_e.dependent_parameters['param_1']['values'].T
+            self.signal_e = dataset_e.dependent_parameters[param]['values'].T
+            self.signal_e_paramspec = dataset_e.dependent_parameters[param]['paramspec']
 
     def plot_average_time_trace_over_shots(self):
         """
         Calculate the average time trace over all the shots for ground and excited state data and plot it.
         """
-        if self.num_params == 1:
-            if self.num_states == 1:
-                fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
-                ax.scatter(self.time, np.mean(self.signal, axis=0), s=6, alpha=0.7)
-                ax.set_xlabel("Time (ns)")
-                ax.set_ylabel("Amplitude (V)")
-                ax.set_title(f"Run ID: {self.run_id}")
-                plt.tight_layout()
-                return fig, ax
-            elif self.num_states == 2:
-                fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
-                ax.scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label='Ground state')
-                ax.scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label='Excited state')
-                ax.set_xlabel("Time (ns)")
-                ax.set_ylabel("Amplitude (V)")
-                ax.set_title(f"Run ID: {self.run_id}")
-                ax.legend(frameon=False, bbox_to_anchor=(1.02, 1))
-                ax.grid(alpha=0.25, linestyle="--")
-                ax.grid(alpha=0.25, linestyle="--")
-                plt.tight_layout()
-                return fig, fig.axes
-        elif self.num_params == 2:  
-            if self.num_states == 1:
-                fig, axs = plt.subplots(1, 2, figsize=(10.0, 3.0))
-                axs[0].scatter(self.time, np.mean(self.signal_mag, axis=0), s=6, alpha=0.7)
-                axs[1].scatter(self.time, np.mean(self.signal_pha, axis=0), s=6, alpha=0.7)
-                axs[0].set_xlabel("Time (ns)")
-                axs[0].set_ylabel("Magnitude (V)")
-                axs[1].set_xlabel("Time (ns)")
-                axs[1].set_ylabel("Phase (deg)")
-                axs[0].set_title(f"Run ID: {self.run_id}")
-                axs[1].set_title(f"Run ID: {self.run_id}")
-                plt.tight_layout()
-                plt.show()
-                return fig, axs
-            elif self.num_states == 2:
-                fig, axes = plt.subplots(2, 1, figsize=(7, 5), sharex=True)
-                fig.suptitle(f"Run ID: {self.run_id}")
-                axes[0].scatter(self.time_g, np.mean(self.signal_mag_g, axis=0), s=6, alpha=0.7, label="Ground state")
-                axes[0].scatter(self.time_e, np.mean(self.signal_mag_e, axis=0), s=6, alpha=0.7, label="Excited state")
-                axes[1].scatter(self.time_g, np.mean(self.signal_phase_g, axis=0), s=6, alpha=0.7, label="Ground state")
-                axes[1].scatter(self.time_e, np.mean(self.signal_phase_e, axis=0), s=6, alpha=0.7, label="Excited state")
-                axes[1].set_xlabel("Time (ns)")
-                axes[0].set_ylabel("Magnitude (V)")
-                axes[1].set_ylabel("Phase (deg)")
-                axes[0].legend(frameon=False, bbox_to_anchor=(1.02, 1))
-                axes[0].grid(alpha=0.25, linestyle="--")
-                axes[0].grid(alpha=0.25, linestyle="--")
-                plt.tight_layout()
-                plt.show()
-                return fig, fig.axes
+        if self.num_states == 1:
+            fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
+            ax.scatter(self.time, np.mean(self.signal, axis=0), s=6, alpha=0.7)
+            ax.set_xlabel("Time (ns)")
+            ax.set_ylabel(f"{self.signal_paramspec.label} ({self.signal_paramspec.unit})" )
+            ax.set_title(f"Run ID: {self.run_id}")
+            plt.tight_layout()
+            return fig, ax
+        elif self.num_states == 2:
+            fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
+            ax.scatter(self.time_g, np.mean(self.signal_g, axis=0), s=6, alpha=0.7, label='Ground state')
+            ax.scatter(self.time_e, np.mean(self.signal_e, axis=0), s=6, alpha=0.7, label='Excited state')
+            ax.set_xlabel("Time (ns)")
+            ax.set_ylabel(f"{self.signal_g_paramspec.label} ({self.signal_g_paramspec.unit})" )
+            ax.set_title(f"Run ID: {self.run_id}")
+            ax.legend(frameon=False, bbox_to_anchor=(1.02, 1))
+            ax.grid(alpha=0.25, linestyle="--")
+            ax.grid(alpha=0.25, linestyle="--")
+            plt.tight_layout()
+            return fig, fig.axes
         
-    def build_histogram_from_time_trace(self, num_bins: int, time_index: int = 0, plot_average_time_trace=False, clip_quantiles:tuple=(0,1)):
+        
+    def build_histogram_from_time_trace(self, num_bins_hist: int, integrate_num_bins: int, integrate_from_bin: int = 0, clip_quantiles:tuple=(0,1), plot=True):
         """
         Build 1D histograms (Ground vs Excited) from the selected time-trace column.
 
         Parameters:
-            num_bins: number of bins
+            num_bins_hist: number of bins
             which_column: choose which bin of the 2D traces to histogram. Default to be the first bin.
             clip_quantiles: Tuple containing lower and higher percentages for cutting outlier data.
 
@@ -118,15 +85,16 @@ class SingleShotMeasurement(DataSet):
         if self.tot_num_shots_g != self.tot_num_shots_e:
             raise ValueError("Ground num shot must equal to excited num shot")
 
-        # Plot average time trace if asked
-        if plot_average_time_trace:
-            self.plot_average_time_trace_over_shots()
-
-        # Pick the data from the provided time index and clean NaNs/infs
-        ground_data = self.signal_mag_g[:, time_index]
-        excited_data = self.signal_mag_e[:, time_index]
-        ground_data = ground_data[np.isfinite(ground_data)]
-        excited_data = excited_data[np.isfinite(excited_data)]
+        # Integrate to obtain the data to form histogram
+        ground_data = np.zeros_like(self.num_shot_g)
+        excited_data = np.zeros_like(self.num_shot_e)
+        for time_index in range(integrate_from_bin, integrate_from_bin + integrate_num_bins):
+            ground_data += self.signal_g[:, time_index]
+            excited_data += self.signal_e[:, time_index]
+        ground_data /= (integrate_num_bins)
+        excited_data /= (integrate_num_bins)
+        # ground_data = ground_data[np.isfinite(ground_data)]
+        # excited_data = excited_data[np.isfinite(excited_data)]
 
         both_data = np.r_[ground_data, excited_data]    # Combine ground and excited data together
 
@@ -138,7 +106,7 @@ class SingleShotMeasurement(DataSet):
             excited_data = excited_data[(excited_data >= lo) & (excited_data <= hi)]
 
         # Shared edges
-        edges = np.histogram_bin_edges(both_data, bins=num_bins)
+        edges = np.histogram_bin_edges(both_data, bins=num_bins_hist)
 
         # Calculate histogram counts using same edges
         hg, _ = np.histogram(ground_data, bins=edges)
@@ -155,8 +123,10 @@ class SingleShotMeasurement(DataSet):
         self.histogram_dict = hist_dict
 
         self.histogram = Histogram(hg, he, h_total, edges)
-        
-        return
+
+        if plot:
+            self.plot_histograms
+        return self.histogram
     
 
     def plot_histograms(
@@ -197,6 +167,42 @@ class SingleShotMeasurement(DataSet):
             fig=fig,
             ax=ax
         )
+
+    def visibility_and_fidelity_vs_integration_time(
+        self, 
+        num_bins_hist: int, 
+        integrate_num_bins_range: list, 
+        integrate_from_bin: int = 0, 
+        clip_quantiles:tuple=(0,1),
+        ground_signal_is_higher=False,
+    ):
+        assert len(integrate_num_bins_range) == 2
+        min_integrate_num_bins = integrate_num_bins_range[0]
+        max_integrate_num_bins = integrate_num_bins_range[1]
+
+        self.time_step = self.time_g[2] - self.time_g[1] # just to avoid the first point being weird because of opx shit timing
+        self.integration_time_array = np.arange(min_integrate_num_bins, max_integrate_num_bins + 1)*self.time_step
+        self.max_visibility_vs_int_time = np.zeros_like(self.integration_time_array)
+        self.fidelity_vs_int_time = np.zeros_like(self.integration_time_array)
+        
+
+        for i, integrate_num_bins in enumerate(range(min_integrate_num_bins, max_integrate_num_bins + 1)):
+            hist = self.build_histogram_from_time_trace(num_bins_hist=num_bins_hist, integrate_num_bins=integrate_num_bins, integrate_from_bin=integrate_from_bin, clip_quantiles=clip_quantiles)
+            hist.compute_visibility(ground_signal_is_higher=ground_signal_is_higher)
+            self.max_visibility_vs_int_time[i] = hist.max_visibility
+            self.fidelity_vs_int_time[i] = hist.fidelity
+
+        fig, ax = plt.subplots()
+        ax.plot(self.integration_time_array, self.max_visibility_vs_int_time, color='k', marker='o', markersize=5, alpha=0.5, )
+        ax.set_xlabel("Integration time (ns)")
+        ax.set_ylabel("Max visibility")
+
+        ax1 = ax.twinx()
+        ax1.plot(self.integration_time_array, self.fidelity_vs_int_time*100, color='k', marker='o', markersize=5, alpha=0.5)
+        ax1.set_ylabel("Fidelity (%)")
+
+
+
         
 
 class Histogram:
@@ -208,6 +214,29 @@ class Histogram:
         self.left_edges = edges[:-1]
         self.bin_width = np.diff(edges)
         self.bin_centers = self.left_edges + self.bin_width/2
+
+    def compute_visibility(self, ground_signal_is_higher=False):
+        """
+        Compute the CFD of the ground and excited state counts. Then from this calculate the visibility array, the maximum visibility, the threshold voltage for maximum visibility and the fidelity.
+
+        #####TODO
+        #WARNING
+        # it is very important to define whether the ground signal is higher than excited signal or not. 
+        # I might need to write a code to flip them.
+        """
+        total_g = self.counts_g.sum()
+        total_e = self.counts_e.sum()
+
+        self.cumulative_prob_g = np.cumsum(self.counts_g) / total_g
+        self.cumulative_prob_e = 1-np.cumsum(self.counts_e) / total_e
+
+        self.visibility_array = self.cumulative_prob_g + self.cumulative_prob_e - 1
+        if ground_signal_is_higher: 
+            self.visibility_array *= -1
+        self.idx_max_visibility = np.argmax(self.visibility_array)
+        self.max_visibility = np.max(self.visibility_array)
+        self.threshold = self.edges[self.idx_max_visibility]
+        self.fidelity = (self.max_visibility + 1)/2
 
     def plot_histograms(
         self,
@@ -253,13 +282,12 @@ class Histogram:
         
         # CDF
         if plot_CDF:
+            if not hasattr(self, 'visibility_array'):
+                raise AttributeError("If you want to plot the CDF, run the method 'computer_visibility' first.")
             ax2 = ax.twinx()
             self._beautify_axis(ax2, right=True)
             ax2.set_ylabel("Probability")
             ax2.set_ylim(0, 1.05)
-    
-            # compute visibility and stuff
-            self.compute_visibility()
     
             # Signal unit
             if signal_unit == 'mV':
@@ -288,26 +316,6 @@ class Histogram:
 
         return fig, ax
     
-    def compute_visibility(self):
-        """
-        Compute the CFD of the ground and excited state counts. Then from this calculate the visibility array, the maximum visibility, the threshold voltage for maximum visibility and the fidelity.
-
-        #####TODO
-        #WARNING
-        # it is very important to define whether the singlet peak voltage is higher than triplet peak voltage or not. 
-        # I might need to write a code to flip them.
-        """
-        total_g = self.counts_g.sum()
-        total_e = self.counts_e.sum()
-
-        self.cumulative_prob_g = np.cumsum(self.counts_g) / total_g
-        self.cumulative_prob_e = 1-np.cumsum(self.counts_e) / total_e
-
-        self.visibility_array = self.cumulative_prob_g + self.cumulative_prob_e - 1
-        self.idx_max_visibility = np.argmax(self.visibility_array)
-        self.max_visibility = np.max(self.visibility_array)
-        self.threshold = self.edges[self.idx_max_visibility]
-        self.fidelity = (self.max_visibility + 1)/2
     
     def _beautify_axis(self, ax, top=False, bottom=True, left=True, right=False):
         ax.grid(alpha=0.25, linestyle="--")
