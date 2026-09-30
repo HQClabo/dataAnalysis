@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import lmfit
 
-from dataAnalysis.dataset import DataSet
+from dataAnalysis.dataset import DataSet, DataSetRFOPX
 
 def charge_sensor_peak_model(Vg, A, V0, Gamma, offset):
     return A * (Gamma/2)**2 / ( (Vg - V0)**2 + (Gamma/2)**2) + offset
@@ -175,8 +175,186 @@ class ChargeSensorAnalysis(DataSet):
 
         return self.V_max_deriv
 
-
 class STOscillationsVSDetuning(DataSet):
+    def __init__(self, exp, run_id=None):
+        super().__init__(exp=exp, run_id=run_id)
+        self.detuning = self.independent_parameters['x']['values']
+        self.evol_time = self.independent_parameters['y']['values']
+        self.fft(axis=0)
+        self.format = format
+        try:
+            self.signal = self.get_dependent_parameter_by_name('Amplitude')['values']
+            self.format = 'amplitude'
+            self.fft = self.dependent_parameters['param_0_fft']['values']
+            self.fft_freq = self.get_independent_parameter_by_name('freq')['values']
+        except:
+            self.format = 'mag-phase'
+            self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
+            self.phase = self.get_dependent_parameter_by_name('Phase')['values']
+            self.fft_mag = self.dependent_parameters['param_0_fft']['values']
+            self.fft_phase = self.dependent_parameters['param_1_fft']['values']
+            self.fft_freq = self.get_independent_parameter_by_name('freq')['values']
+        else:
+            raise ValueError(f"Invalid format '{format}'. Must be either 'amplitude' or 'mag-phase'.")
+
+    def plot(self):
+        if self.format == 'amplitude':
+            fig, ax = plt.subplots(1,1)
+            fig.suptitle(f'Run #{self.run_id}', y=1.01)
+            plot = ax.pcolormesh(self.detuning*1e3, self.evol_time, self.signal*1e3)
+            fig.colorbar(plot, label='Amplitude (mV)')
+            ax.set_ylabel('Evolution time (ns)')
+            ax.set_xlabel('Detuning (mV)')
+            plt.show()
+
+            # add fft in new figure
+            fig_fft, ax_fft = plt.subplots(1,1)
+            fig_fft.suptitle(f'Run #{self.run_id}', y=1.01)
+            plot_fft = ax_fft.pcolormesh(self.detuning*1e3, self.fft_freq*1e-6, self.fft*1e3)
+            fig_fft.colorbar(plot_fft, label='FFT (mV)')
+            ax_fft.set_ylabel('Frequency (MHz)')
+            ax_fft.set_xlabel('Detuning (mV)')
+
+            return [fig, fig_fft], [ax, ax_fft], [plot, plot_fft]
+            
+        elif self.format == 'mag-phase':
+            figsize = (11, 4)
+            fig, ax = plt.subplots(1, 2, figsize=figsize, sharex=True)
+            plt.subplots_adjust(wspace=0.3)
+            fig.suptitle(f'Run #{self.run_id}')
+
+            plot1 = ax[0].pcolormesh(self.detuning*1e3, self.evol_time, self.mag*1e3)
+            fig.colorbar(plot1, ax=ax[0], label='Magnitude (mV)')
+            plot2 = ax[1].pcolormesh(self.detuning*1e3, self.evol_time, self.phase)
+            fig.colorbar(plot2, ax=ax[1], label='Phase (deg)')
+
+            ax[0].set_ylabel('Evolution time (ns)')
+            ax[1].set_ylabel('Evolution time (ns)')
+            ax[1].set_xlabel('Detuning (mV)')
+            ax[0].set_xlabel('Detuning (mV)')
+
+            # add fft in new figure
+            fig_fft, ax_fft = plt.subplots(1, 2, figsize=figsize, sharex=True)
+            plt.subplots_adjust(wspace=0.3)
+            fig_fft.suptitle(f'Run #{self.run_id}')
+            
+            plot1_fft = ax_fft[0].pcolormesh(self.detuning*1e3, self.fft_freq/1e6, self.fft_mag*1e3)
+            fig_fft.colorbar(plot1_fft, ax=ax_fft[0], label='Magnitude FFT (mV)')
+            plot2_fft = ax_fft[1].pcolormesh(self.detuning*1e3, self.fft_freq/1e6, self.fft_phase)
+            fig_fft.colorbar(plot2_fft, ax=ax_fft[1], label='Phase FFT (deg)')
+            
+            ax_fft[0].set_ylabel('Frequency (MHz)')
+            ax_fft[1].set_ylabel('Frequency (MHz)')
+            ax_fft[1].set_xlabel('Detuning (mV)')
+            ax_fft[0].set_xlabel('Detuning (mV)')
+            
+            return [fig, fig_fft], [ax, ax_fft], [plot1, plot2, plot1_fft, plot2_fft]
+
+class OPXPulsedChargeStabilityDiagram(DataSet):
+    def __init__(self, exp, run_id=None, attenuation=1):
+        super().__init__(exp=exp, run_id=run_id)
+        self.x_opx_vals = self.independent_parameters['x']['values']
+        self.y_opx_vals = self.independent_parameters['y']['values']
+        self.independent_parameters['x']['values'] = self.independent_parameters['x']['values']/attenuation
+        self.independent_parameters['y']['values'] = self.independent_parameters['y']['values']/attenuation
+        self.attenuation = attenuation
+
+    def plot(self, format='mag-phase', transpose=True):
+        if self.attenuation == 1:
+            self._plot_single_axis(format=format, transpose=transpose)
+        else:
+            self._plot_double_axis(format=format, transpose=True)
+
+    def _plot_single_axis(self, format='mag-phase', transpose=True):
+        if format == 'mag-phase':
+            fig, axs = plt.subplots(1, 2, figsize=(14, 5))
+            # plt.subplots_adjust(wspace=0.4)
+            # Magnitude plot
+            if transpose:
+                x = self.independent_parameters['y']['values']
+                x_label = self.independent_parameters['y']['paramspec'].label
+                y = self.independent_parameters['x']['values']
+                y_label = self.independent_parameters['x']['paramspec'].label
+                mag = self.dependent_parameters['param_0']['values'].T
+                mag_label = self.dependent_parameters['param_0']['paramspec'].label
+                phase = self.dependent_parameters['param_1']['values'].T
+                phase_label = self.dependent_parameters['param_1']['paramspec'].label
+            else:
+                x = self.independent_parameters['x']['values']
+                x_label = self.independent_parameters['x']['paramspec'].label
+                y = self.independent_parameters['y']['values']
+                y_label = self.independent_parameters['y']['paramspec'].label
+                mag = self.dependent_parameters['param_0']['values']
+                mag_label = self.dependent_parameters['param_0']['paramspec'].label
+                phase = self.dependent_parameters['param_1']['values']
+                phase_label = self.dependent_parameters['param_1']['paramspec'].label
+        
+            plot0 = axs[0].pcolormesh(x*1e3, y*1e3, mag*1e3)
+            axs[0].set_xlabel("Real " + x_label + " (mV)")
+            axs[0].set_ylabel("Real " + y_label + " (mV)")
+            cbar = fig.colorbar(plot0, label= mag_label + " (mV)", location='right', shrink=1.0)
+        
+            plot0 = axs[1].pcolormesh(x*1e3, y*1e3, phase)
+            axs[1].set_xlabel("Real " + x_label + " (mV)")
+            axs[1].set_ylabel("Real " + y_label + " (mV)")
+            fig.colorbar(plot0, label= phase_label + " (deg)", location='right', shrink=1.0)
+        
+        
+        fig.suptitle(f"Run #{self.run_id}", y=0.98)
+
+
+    def _plot_double_axis(self, format='mag-phase', transpose=True):
+        if format == 'mag-phase':
+            fig, axs = plt.subplots(1, 2, figsize=(12, 6.5))
+            plt.subplots_adjust(wspace=0.5)
+            # Magnitude plot
+            if transpose:
+                x = self.independent_parameters['y']['values']
+                x_opx = self.y_opx_vals
+                x_label = self.independent_parameters['y']['paramspec'].label
+                y = self.independent_parameters['x']['values']
+                y_opx = self.x_opx_vals
+                y_label = self.independent_parameters['x']['paramspec'].label
+                mag = self.dependent_parameters['param_0']['values'].T
+                mag_label = self.dependent_parameters['param_0']['paramspec'].label
+                phase = self.dependent_parameters['param_1']['values'].T
+                phase_label = self.dependent_parameters['param_1']['paramspec'].label
+            else:
+                x = self.independent_parameters['x']['values']
+                x_opx = self.x_opx_vals
+                x_label = self.independent_parameters['x']['paramspec'].label
+                y = self.independent_parameters['y']['values']
+                y_opx = self.y_opx_vals
+                y_label = self.independent_parameters['y']['paramspec'].label
+                mag = self.dependent_parameters['param_0']['values']
+                mag_label = self.dependent_parameters['param_0']['paramspec'].label
+                phase = self.dependent_parameters['param_1']['values']
+                phase_label = self.dependent_parameters['param_1']['paramspec'].label
+
+            plot0 = axs[0].pcolormesh(x*1e3, y*1e3, mag*1e3)
+            axs[0].set_xlabel("Real " + x_label + " (mV)")
+            axs[0].set_ylabel("Real " + y_label + " (mV)")
+            cbar = fig.colorbar(plot0, label= mag_label + " (mV)", location='top', shrink=0.8, pad=0.12)
+
+            plot0 = axs[1].pcolormesh(x*1e3, y*1e3, phase)
+            axs[1].set_xlabel("Real " + x_label + " (mV)")
+            axs[1].set_ylabel("Real " + y_label + " (mV)")
+            fig.colorbar(plot0, label= phase_label + " (deg)", location='top', shrink=0.8, pad=0.12)
+            
+            # Add other axes for raw opx values
+            for ax_idx in range(2):
+                ax0x = axs[ax_idx].twiny()
+                ax0x.set_xlim(min(x_opx)*1e3, max(x_opx)*1e3)
+                ax0x.set_xlabel("OPX " + x_label + " (mV)", color='grey')
+                ax0x.tick_params(colors="grey")
+                ax0y = axs[ax_idx].twinx()
+                ax0y.set_ylim(min(y_opx)*1e3, max(y_opx)*1e3)
+                ax0y.set_ylabel("OPX " + y_label + " (mV)", color='grey')
+                ax0y.tick_params(colors="grey")
+
+        fig.suptitle(f"Run #{self.run_id}", y=0.8)
+
+class STOscillationsVSDetuningOld(DataSet):
     def __init__(self, exp, run_id=None, detuning=None, format='amplitude', flip_in_detuning=True):
         super().__init__(exp=exp, run_id=run_id)
         self.opx_detuning = self.independent_parameters['x']['values']
@@ -260,7 +438,7 @@ class STOscillationsVSDetuning(DataSet):
             ax12.set_xlabel('OPX Detuning (mV)')
 
 
-class Measurement2DVSDetuning(DataSet):
+class Measurement2DVSDetuningOld(DataSet):
     def __init__(self, exp, run_id=None, detuning=None, detuning_axis=1, format='amplitude', flip_in_detuning=True):
         """
         Args:
@@ -272,6 +450,7 @@ class Measurement2DVSDetuning(DataSet):
             flip_in_detuning: True if the opx detuning has opposite sign as the real detuning
         """
         super().__init__(exp=exp, run_id=run_id)
+        self.detuning_axis = detuning_axis
         if detuning_axis == 1:
             self.opx_detuning = self.independent_parameters['x']['values']
             self.detuning = detuning
@@ -290,16 +469,13 @@ class Measurement2DVSDetuning(DataSet):
         elif format == 'mag-phase':
             self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
             self.phase = self.get_dependent_parameter_by_name('Phase')['values']
-            self.fft_mag = self.dependent_parameters['param_0_fft']['values']
-            self.fft_phase = self.dependent_parameters['param_1_fft']['values']
-            self.fft_freq = self.get_independent_parameter_by_name('freq')['values']
             if flip_in_detuning:
                 self.mag = np.flip(self.mag, axis=detuning_axis)
                 self.phase = np.flip(self.phase, axis=detuning_axis)
         else:
             raise ValueError(f"Invalid format '{format}'. Must be either 'amplitude' or 'mag-phase'.")
 
-    def plot(self, show_opx_detuning=True):
+    def plot(self, show_opx_detuning=True, detuning_name='Detuning'):
         if self.format == 'amplitude':
             fig, ax = plt.subplots(1,1)
             fig.suptitle(f'Run #{self.run_id}', y=1.01)
@@ -308,29 +484,32 @@ class Measurement2DVSDetuning(DataSet):
             fig.colorbar(plot, label='Amplitude (mV)')
     
             ax.set_ylabel(f"{self.other_axis_param['paramspec'].label} ({self.other_axis_param['paramspec'].unit})")
-            ax.set_xlabel('Detuning (mV)')
+            ax.set_xlabel(f'{detuning_name} (mV)')
             if show_opx_detuning:
                 ax2 = ax.twiny()
                 ax2.set_xlim(self.opx_detuning[-1]*1e3, self.opx_detuning[0]*1e3)
-                ax2.set_xlabel('OPX Detuning (mV)')
+                ax2.set_xlabel(f'OPX {detuning_name} (mV)')
             plt.show()
     
         elif self.format == 'mag-phase':
     
-            fig, ax = plt.subplots(1, 2, figsize=(6.5, 4.0), sharex=True)
+            fig, ax = plt.subplots(1, 2, figsize=(12, 4.0))
             fig.suptitle(f'Run #{self.run_id}', y=1.01)
     
             plot1 = ax[0].pcolormesh(self.detuning*1e3, self.other_axis, self.mag*1e3)
             fig.colorbar(plot1, ax=ax[0], label='Magnitude (mV)')
             plot2 = ax[1].pcolormesh(self.detuning*1e3, self.other_axis, self.phase)
             fig.colorbar(plot2, ax=ax[1], label='Phase (deg)')
-    
-            ax[1].set_ylabel('Evolution time (ns)')
-            ax[1].set_xlabel('Detuning (mV)')
-            ax02 = ax[0].twiny()
-            ax02.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
-            ax02.set_xlabel('OPX Detuning (mV)')
-    
-            ax12 = ax[1].twiny()
-            ax12.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
-            ax12.set_xlabel('OPX Detuning (mV)')
+
+            ax[0].set_xlabel(f'{detuning_name} (mV)')
+            ax[0].set_ylabel(f"{self.other_axis_param['paramspec'].label} ({self.other_axis_param['paramspec'].unit})")
+            ax[1].set_ylabel(f"{self.other_axis_param['paramspec'].label} ({self.other_axis_param['paramspec'].unit})")
+            ax[1].set_xlabel(f'{detuning_name} (mV)')
+
+            if show_opx_detuning:
+                ax02 = ax[0].twiny()
+                ax02.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
+                ax02.set_xlabel(f'OPX {detuning_name} (mV)')
+                ax12 = ax[1].twiny()
+                ax12.set_xlim(self.opx_detuning[0]*1e3, self.opx_detuning[-1]*1e3)
+                ax12.set_xlabel(f'OPX {detuning_name} (mV)')
