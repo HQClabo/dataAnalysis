@@ -52,6 +52,19 @@ def filter_array(main_array:np.ndarray, lower_value=None, upper_value=None, othe
 
     return main_array, other_arrays
 
+def v_amp_to_dbm(v_amp, R=50):
+    return 10 * np.log10((v_amp ** 2) / (2 * R) * 1000)
+
+def dbm_to_v_amp(dbm, R=50):
+    """Convert power in dBm toamplitude voltage (v_amp) for a sine wave."""
+    # Convert dBm to Watts
+    p_watts = 10 ** (dbm / 10) / 1000
+    # Convert to RMS voltage
+    v_rms = np.sqrt(p_watts * R)
+    # Convert to voltage amplitude for sine wave
+    v_amp = np.sqrt(2) * v_rms
+    return v_amp
+
 
 class DataSet():
     """
@@ -880,7 +893,9 @@ class DataSet():
 
 
 class ConcatenatedDataSet(DataSet):
-    def __init__(self, exp, run_id_first:int, run_id_last:int=None, num_runs:int=None, outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, station=None):
+    def __init__(self, exp, run_id_first:int, run_id_last:int=None, num_runs:int=None, 
+                 outer_param_values:list|np.ndarray=None, outer_param_name:str = None, outer_param_unit:str=None, 
+                 station=None):
         self.run_id_first = run_id_first
         self.run_id_last = run_id_last
         self.num_runs = num_runs
@@ -894,9 +909,14 @@ class ConcatenatedDataSet(DataSet):
         if num_runs != None: 
             assert run_id_last == None, "Error: provide either run_id_last OR num_runs"
             self.run_id_last = run_id_first + num_runs - 1
-        if run_id_last != None:
+        elif run_id_last != None:
             assert num_runs == None, "Error: provide either run_id_last OR num_runs"
             self.num_runs = run_id_last - run_id_first + 1
+        elif outer_param_values is not None:
+            self.num_runs = len(outer_param_values)
+            self.run_id_last = run_id_first + self.num_runs - 1
+        else:
+            raise AttributeError("Either 'num_runs', 'run_id_last' or 'outer_param_values' must be provided.")
         assert self.num_runs == len(outer_param_values), "The number of run ids to concatenate and the length of the outer parameter array must be the same."
         
         self.run_id = [self.run_id_first, self.run_id_last] # for printing purposes
@@ -1782,6 +1802,12 @@ class DataSetRFOPX(DataSet):
         run_id (optional): Run ID of the measurement. If not provided, the last measurement run is used.
         station (optional): Station. 
     """
+    mag: np.ndarray
+    phase: np.ndarray
+    lo_freq: float
+    if_freq: float|np.ndarray
+    rf_freq: float|np.ndarray
+
     def __init__(self, exp, run_id=None, station=None, lo_freq=0, if_freq=0):
         super().__init__(exp=exp, run_id=run_id, station=station)
         self._extract_data(lo_freq, if_freq)
@@ -1794,7 +1820,9 @@ class DataSetRFOPX(DataSet):
         self.phase = self.get_dependent_parameter_by_name('phase')['values']
         self.lo_freq = lo_freq
         self.if_freq = if_freq
-        self.freq = self.lo_freq + self.if_freq
+        self.rf_freq = self.lo_freq + self.if_freq
+
+        self.mag_unit = 'V'
 
     def shift_phase(self, shift_deg=180):
         """
@@ -1814,6 +1842,63 @@ class DataSetRFOPX(DataSet):
         self.phase = phase
         self.dependent_parameters['param_1']['values'] = self.phase
 
+    def plot(self, transpose=False, logx=False, logy=False):
+        fig, axs = plt.subplots(1, 2, figsize=(14, 5))
+        # plt.subplots_adjust(wspace=0.4)
+        # Magnitude plot
+        mag = self.dependent_parameters['param_0']['values']
+        mag_label = self.dependent_parameters['param_0']['paramspec'].label
+        phase = self.dependent_parameters['param_1']['values']
+        phase_label = self.dependent_parameters['param_1']['paramspec'].label
+        if transpose:
+            x_id = 'y'
+            y_id = 'x'
+            mag = mag.T
+            phase = phase.T
+        else:
+            x_id = 'x'
+            y_id = 'y'
+
+        x = self.independent_parameters[x_id]['values']
+        x_label = self.independent_parameters[x_id]['paramspec'].label
+        x_unit = self.independent_parameters[x_id]['paramspec'].unit
+        y = self.independent_parameters[y_id]['values']
+        y_label = self.independent_parameters[y_id]['paramspec'].label
+        y_unit = self.independent_parameters[y_id]['paramspec'].unit
+        
+        plot0 = axs[0].pcolormesh(x*1e3, y*1e3, mag*1e3)
+        axs[0].set_xlabel(x_label + f" ({x_unit})")
+        axs[0].set_ylabel(y_label + f" ({y_unit})")
+        cbar = fig.colorbar(plot0, label= mag_label + " (mV)", location='right', shrink=1.0)
+        
+        plot0 = axs[1].pcolormesh(x*1e3, y*1e3, phase)
+        axs[1].set_xlabel(x_label + " (mV)")
+        axs[1].set_ylabel(y_label + " (mV)")
+        fig.colorbar(plot0, label= phase_label + " (deg)", location='right', shrink=1.0)
+
+        for ax in axs:
+            if logx:
+                ax.set_xscale('log')
+            if logy:
+                ax.set_yscale('log')
+
+
+        
+        fig.suptitle(f"Run #{self.run_id}", y=0.98)
+
+        return fig, axs
+
+class DataSetRFOPXConcatenated(ConcatenatedDataSet, DataSetRFOPX):
+    def __init__(self, exp, run_id_first, run_id_last = None, num_runs = None, 
+                 outer_param_values = None, outer_param_name = None, outer_param_unit = None, 
+                 lo_freq=0, if_freq=0):
+        ConcatenatedDataSet.__init__(self, exp, run_id_first, run_id_last, num_runs, outer_param_values, outer_param_name, outer_param_unit, station=None)  
+        self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
+        self.phase = self.get_dependent_parameter_by_name('phase')['values']
+        self.lo_freq = lo_freq
+        self.if_freq = if_freq
+        self.rf_freq = self.lo_freq + self.if_freq
+
 class FrequencyScanOPX(DataSetRFOPX):
     """
     Class for 1D OPX frequency sweeps.
@@ -1828,19 +1913,8 @@ class FrequencyScanOPX(DataSetRFOPX):
         # This will already extract self.mag, self.phase
         super().__init__(exp=exp, run_id=run_id, station=station, lo_freq=lo_freq)
         self.if_freq = self.get_independent_parameter_by_name('freq')['values']
-        self.freq = self.lo_freq + self.if_freq
+        self.rf_freq = self.lo_freq + self.if_freq
         
-
-    def slice_data(self, freq_range:tuple=None):
-        """
-        Extracts data from an OPX measurement.
-
-        Args:
-            freq_range (tuple, optional): Frequency range to extract data from. Defaults to None.
-        """
-        self.if_freq = self.get_independent_parameter_by_name('freq')['values']
-        self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
-        self.phase = self.get_dependent_parameter_by_name('phase')['values']
 
     def remove_phase_delay(self):
         """
@@ -1848,7 +1922,7 @@ class FrequencyScanOPX(DataSetRFOPX):
         """
 
         phase = np.deg2rad(self.phase)
-        freq = self.freq
+        freq = self.rf_freq
         # Fit linear function to unwrapped phase
         p = np.polyfit(freq, phase, 1)
         # Subtract linear fit from unwrapped phase
@@ -1891,5 +1965,140 @@ class FrequencyScanOPX(DataSetRFOPX):
         
         return fig, axes
 
+class FrequencyScanOPX2D(FrequencyScanOPX):
+    other_param: np.ndarray
+    other_param_label: str
+    other_param_unit: str
+    def __init__(self, exp, run_id=None, station=None, lo_freq=0):
+        super().__init__(exp, run_id, station, lo_freq) # creates self.if_freq, self.lo_freq, self.rf_freq, self.mag, self.phase
+        if self.get_independent_parameter_by_name('freq')['name'] == 'y':
+            other_param_key = 'x'
+            self.frequency_axis = 0
+        else:
+            other_param_key = 'y'
+            self.frequency_axis = 1
+        self.other_param = self.independent_parameters[other_param_key]['values']
+        self.other_param_label = self.independent_parameters[other_param_key]['paramspec'].label
+        self.other_param_unit = self.independent_parameters[other_param_key]['paramspec'].unit
 
-        
+    def remove_phase_delay(self):
+        """
+        Removes the phase delay from the data by fitting a linear function to the phase and subtracting it.
+        """
+    
+        phase = np.deg2rad(self.phase)
+        freq = self.rf_freq
+        # Save raw phase first
+        self.phase_raw = self.phase
+        self.copy_dependent_parameter('param_1', 'param_1_raw')
+    
+        phase_corrected = np.zeros_like(phase)
+        for other_param_idx in range(len(self.other_param)):
+            if self.frequency_axis == 0:
+                phase_slice = phase[:, other_param_idx]
+            else:
+                phase_slice = phase[other_param_idx, :]
+            # Fit linear function to unwrapped phase
+            p = np.polyfit(freq, phase_slice, 1)
+            # Subtract linear fit from unwrapped phase
+            phase_slice_corrected = phase_slice - np.polyval(p, freq)
+            self.phase_delay_fit = p
+            # Wrap corrected phase back to [-pi, pi]
+            phase_slice_corrected = np.rad2deg(np.arctan2(np.sin(phase_slice_corrected), np.cos(phase_slice_corrected)))
+            # Update phase 
+            if self.frequency_axis == 0:
+                phase_corrected[:, other_param_idx] = phase_slice_corrected  
+            else:
+                phase_corrected[other_param_idx, :] = phase_slice_corrected 
+        self.phase = phase_corrected
+        self.dependent_parameters['param_1']['values'] = self.phase
+
+    def plot(self):
+        fig, axs = plt.subplots(1, 2, figsize=(14, 5))
+        # plt.subplots_adjust(wspace=0.4)
+
+        if self.frequency_axis == 0:
+            plot_mag = axs[0].pcolormesh(self.other_param, self.if_freq/1e6, self.mag)
+            axs[0].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            axs[0].set_ylabel("IF Frequency (MHz)")
+            cbar = fig.colorbar(plot_mag, label= f"Magnitude ({self.mag_unit})", location='right', shrink=1.0)
+            
+            plot_phase = axs[1].pcolormesh(self.other_param, self.if_freq/1e6, self.phase)
+            axs[1].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            axs[1].set_ylabel("IF Frequency (MHz)")
+            cbar = fig.colorbar(plot_phase, label= "Phase (deg)", location='right', shrink=1.0)
+            
+            fig.suptitle(f"Run #{self.run_id}", y=0.98)
+        else:
+            plot_mag = axs[0].pcolormesh(self.other_param, self.if_freq/1e6, self.mag.T)
+            axs[0].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            axs[0].set_ylabel("IF Frequency (MHz)")
+            cbar = fig.colorbar(plot_mag, label= f"Magnitude ({self.mag_unit})", location='right', shrink=1.0)
+            
+            plot_phase = axs[1].pcolormesh(self.other_param, self.if_freq/1e6, self.phase.T)
+            axs[1].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            axs[1].set_ylabel("IF Frequency (MHz)")
+            cbar = fig.colorbar(plot_phase, label= "Phase (deg)", location='right', shrink=1.0)
+            
+            fig.suptitle(f"Run #{self.run_id}", y=0.98)
+
+        return fig, axs, [plot_mag, plot_phase]
+
+
+    
+class PowerScanOPX(FrequencyScanOPX2D):
+    power: np.ndarray
+
+    def __init__(self, exp, run_id=None, lo_freq=0):
+        super().__init__(exp=exp, run_id=run_id, lo_freq=lo_freq)
+        self.power = self.other_param
+        self.power_label = self.other_param_label
+        self.power_unit = self.other_param_unit
+
+    def convert_mag_to_S21(self, plot=False):
+        if self.power_unit.lower() == 'dbm':
+            power_V = dbm_to_v_amp(self.power)
+            print("dbm!")
+        elif self.power_unit == 'V':
+            power_V = self.power
+            print("V!")
+        else:
+            raise AttributeError("Weird unit in the measurement power: expecting 'dBm' or 'V' only.")
+
+        print(power_V)
+
+        mag_corr = np.zeros_like(self.mag)
+        for power_idx, power_V_val in enumerate(power_V):
+            if self.frequency_axis == 0:
+                mag_slice_corr = self.mag[:, power_idx] / power_V_val
+                mag_corr[:, power_idx] = mag_slice_corr
+            else:
+                mag_slice_corr = self.mag[power_idx, :] / power_V_val
+                mag_corr[power_idx, :] = mag_slice_corr
+        self.mag = 20*np.log10(mag_corr)
+        self.mag_unit = 'dB'
+
+        if plot:
+            fig, axs, plots = self.plot()
+            # for ax in fig.axes:
+            #     if 'magnitude' in ax.get_ylabel().lower():
+            #         # ax.set_ylabel("Magnitude (dB)")
+            #         ax.set_ylabel("Magnitude (dB)")
+            return fig, axs, plots
+
+    def normalize_data_from_index(self, idx=-1, axis=0):
+        """
+        Normalize magnitude and phase with a line cut at the specified index. Default idx is -1, usually corresponding to the highest power trace.
+        """
+        mag_corr = np.zeros_like(self.mag)
+        norm_slice = self.mag[:, idx]
+        for power_idx, _ in enumerate(self.power):
+            if self.frequency_axis == 0:
+                mag_slice_corr = self.mag[:, power_idx] - norm_slice
+                mag_corr[:, power_idx] = mag_slice_corr
+            else:
+                mag_slice_corr = self.mag[power_idx, :] - norm_slice
+                mag_corr[power_idx, :] = mag_slice_corr
+        self.mag = mag_corr
+
+
