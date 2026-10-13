@@ -194,8 +194,6 @@ class STOscillationsVSDetuning(DataSet):
             self.fft_mag = self.dependent_parameters['param_0_fft']['values']
             self.fft_phase = self.dependent_parameters['param_1_fft']['values']
             self.fft_freq = self.get_independent_parameter_by_name('freq')['values']
-        else:
-            raise ValueError(f"Invalid format '{format}'. Must be either 'amplitude' or 'mag-phase'.")
 
     def plot(self):
         if self.format == 'amplitude':
@@ -290,13 +288,13 @@ class OPXPulsedChargeStabilityDiagram(DataSet):
                 phase_label = self.dependent_parameters['param_1']['paramspec'].label
         
             plot0 = axs[0].pcolormesh(x*1e3, y*1e3, mag*1e3)
-            axs[0].set_xlabel("Real " + x_label + " (mV)")
-            axs[0].set_ylabel("Real " + y_label + " (mV)")
+            axs[0].set_xlabel( x_label + " (mV)")
+            axs[0].set_ylabel(y_label + " (mV)")
             cbar = fig.colorbar(plot0, label= mag_label + " (mV)", location='right', shrink=1.0)
         
             plot0 = axs[1].pcolormesh(x*1e3, y*1e3, phase)
-            axs[1].set_xlabel("Real " + x_label + " (mV)")
-            axs[1].set_ylabel("Real " + y_label + " (mV)")
+            axs[1].set_xlabel(x_label + " (mV)")
+            axs[1].set_ylabel(y_label + " (mV)")
             fig.colorbar(plot0, label= phase_label + " (deg)", location='right', shrink=1.0)
         
         
@@ -353,6 +351,103 @@ class OPXPulsedChargeStabilityDiagram(DataSet):
                 ax0y.tick_params(colors="grey")
 
         fig.suptitle(f"Run #{self.run_id}", y=0.8)
+
+class ChargeQubitSpectroscopy(DataSetRFOPX):
+    def __init__(self, exp, run_id=None, lo_freq=0, unwrap_phase=True):
+        super().__init__(exp, run_id, lo_freq=lo_freq)
+        self.if_freq = self.independent_parameters['y']['values']
+        self.rf_freq = self.if_freq + self.lo_freq
+        self.gate_voltage = self.independent_parameters['x']['values']
+        self.gate_voltage_name = self.independent_parameters['x']['paramspec'].name
+        self.gate_voltage_unit = self.independent_parameters['x']['paramspec'].unit
+
+    def remove_phase_delay(self):
+        """
+        Removes the phase delay from the data by fitting a linear function to the phase and subtracting it.
+        """
+
+        phase = np.deg2rad(self.phase)
+        freq = self.rf_freq
+        # Save raw phase first
+        self.phase_raw = self.phase
+        self.copy_dependent_parameter('param_1', 'param_1_raw')
+
+        phase_corrected = np.zeros_like(phase)
+        for gate_voltage_idx in range(len(self.gate_voltage)):
+            phase_slice = phase[:, gate_voltage_idx]
+            # Fit linear function to unwrapped phase
+            p = np.polyfit(freq, phase_slice, 1)
+            # Subtract linear fit from unwrapped phase
+            phase_slice_corrected = phase_slice - np.polyval(p, freq)
+            self.phase_delay_fit = p
+            # Wrap corrected phase back to [-pi, pi]
+            phase_slice_corrected = np.rad2deg(np.arctan2(np.sin(phase_slice_corrected), np.cos(phase_slice_corrected)))
+            # Update phase 
+            phase_corrected[:, gate_voltage_idx] = phase_slice_corrected   
+        self.phase = phase_corrected
+        self.dependent_parameters['param_1']['values'] = self.phase
+
+
+    def get_snr_freq_slice(self, if_freq_idx, peak_window, param='mag', plot=False):
+        if param == 'mag':
+            signal = self.mag[if_freq_idx, :]
+        elif param == 'phase':
+            signal = self.phase[if_freq_idx, :]
+        x = self.gate_voltage
+
+        assert len(peak_window) == 2
+        mask = (x < peak_window[0]) | (x > peak_window[1])
+
+        # Fit a polynomial baseline to the peak-free points only
+        coeffs = np.polyfit(x[mask], signal[mask], 0)
+        baseline = np.polyval(coeffs, x)
+
+        residuals = signal[mask] - baseline[mask]
+
+        sigma = np.std(residuals, ddof=1) # 1 + order of the polyfit
+        A = np.max(signal - baseline)
+        snr = A**2 / sigma**2
+
+        if plot:
+            if param == 'mag':
+                param_plot = 'param_0'
+            elif param == 'phase':
+                param_plot = 'param_1'
+            fig, ax = self.plot_1D_cut([param_plot], cut_idx=if_freq_idx, axis=1)
+            # print(fig, ax[0])
+            ax[0].axhline(y=baseline[0], linestyle = '-', color='r')
+            ax[0].axhline(y=baseline[0]+A, linestyle = '-', color='green')
+            ax[0].axhline(y=baseline[0]+sigma, linestyle = '-', color='blue')
+            ax[0].axhline(y=baseline[0]-sigma, linestyle = '-', color='blue')
+
+        return snr, A, sigma
+
+    def get_snr_vs_freq(self, peak_window, param='mag', plot=False):
+        snr_vs_freq = np.zeros_like(self.if_freq)
+        for if_freq_idx in range(len(self.if_freq)):
+            snr_here, A_here, sigma_here = self.get_snr_freq_slice(if_freq_idx=if_freq_idx, peak_window=peak_window, param=param, plot=False)
+            snr_vs_freq[if_freq_idx] = snr_here
+        self.snr_vs_freq = snr_vs_freq
+        self.best_snr = np.max(self.snr_vs_freq)
+        self.best_if_freq = self.if_freq[np.argmax(self.snr_vs_freq)]
+        self.best_if_freq_idx = np.argmax(self.snr_vs_freq)
+
+        if plot:
+            fig, ax = plt.subplots()
+            ax.plot(self.if_freq/1e6, self.snr_vs_freq)
+            ax.set_xlabel("IF Freq (MHz)")
+            ax.set_ylabel("SNR")
+
+    def get_peak_voltage_freq_slice(self, if_freq_idx, param = 'mag'):
+        if param == 'mag':
+            signal = self.mag[if_freq_idx, :]
+        elif param == 'phase':
+            signal = self.phase[if_freq_idx, :]
+        x = self.gate_voltage
+        return x[np.argmax(signal)]
+
+
+
 
 class STOscillationsVSDetuningOld(DataSet):
     def __init__(self, exp, run_id=None, detuning=None, format='amplitude', flip_in_detuning=True):
