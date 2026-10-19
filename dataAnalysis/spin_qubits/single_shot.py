@@ -31,6 +31,7 @@ class TimeTraceMeasurement(DataSet):
                 run_id_g = exp.last_counter-1
             self.run_id = [run_id_g, run_id_e]
 
+            # Ground state run
             dataset_g = DataSet(exp=exp, run_id=run_id_g)
             self.time_g = dataset_g.independent_parameters['y']['values'] 
             self.num_shot_g = dataset_g.independent_parameters['x']['values'] 
@@ -38,6 +39,7 @@ class TimeTraceMeasurement(DataSet):
             self.signal_g = dataset_g.dependent_parameters[param]['values'].T
             self.signal_g_paramspec = dataset_g.dependent_parameters[param]['paramspec']
 
+            # Excited state run
             dataset_e = DataSet(exp=exp, run_id=run_id_e)
             self.time_e = dataset_e.independent_parameters['y']['values'] 
             self.num_shot_e = dataset_e.independent_parameters['x']['values'] 
@@ -53,9 +55,18 @@ class TimeTraceMeasurement(DataSet):
         if self.num_states == 1:
             fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.0))
             ax.scatter(self.time, np.mean(self.signal, axis=0), s=6, alpha=0.7)
+
+            if fit:
+                fit_report, model = fit_T1_decay(self.time, np.mean(self.signal, axis=0))
+                self.T1 = fit_report.best_values['T1']
+                self.T1_err = fit_report.params['T1'].stderr
+                ax.plot(self.time, model.eval(params=fit_report.params, t=self.time), c='b', linestyle='dashed', label=f"$T_1$ = {self.T1/1e3:.0f} $\mu$s ")
+                ax.legend(frameon=False, bbox_to_anchor=(1.02, 1))
+
             ax.set_xlabel("Time (ns)")
             ax.set_ylabel(f"{self.signal_paramspec.label} ({self.signal_paramspec.unit})" )
             ax.set_title(f"Run ID: {self.run_id}")
+            
             plt.tight_layout()
             return fig, ax
         
@@ -85,7 +96,7 @@ class TimeTraceMeasurement(DataSet):
 
     
         
-    def build_histogram_from_time_trace(self, num_bins_hist: int, integrate_num_bins: int, integrate_from_bin: int = 0, clip_quantiles:tuple=(0,1), plot=True):
+    def build_histogram_from_time_trace(self, num_bins_hist: int, integrate_num_bins: int, integrate_from_bin: int = 0, clip_quantiles:tuple=(0,1), plot=False):
         """
         Build 1D histograms (Ground vs Excited) from the selected time-trace column.
 
@@ -108,8 +119,8 @@ class TimeTraceMeasurement(DataSet):
             excited_data += self.signal_e[:, time_index]
         ground_data /= (integrate_num_bins)
         excited_data /= (integrate_num_bins)
-        # ground_data = ground_data[np.isfinite(ground_data)]
-        # excited_data = excited_data[np.isfinite(excited_data)]
+        self.ground_data = ground_data
+        self.excited_data = excited_data
 
         both_data = np.r_[ground_data, excited_data]    # Combine ground and excited data together
 

@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import lmfit
 
-from dataAnalysis.dataset import DataSet, DataSetRFOPX
+from dataAnalysis.dataset import DataSet, DataSetRFOPX, FrequencyScanOPX2D
 
 def charge_sensor_peak_model(Vg, A, V0, Gamma, offset):
     return A * (Gamma/2)**2 / ( (Vg - V0)**2 + (Gamma/2)**2) + offset
@@ -352,8 +352,8 @@ class OPXPulsedChargeStabilityDiagram(DataSet):
 
         fig.suptitle(f"Run #{self.run_id}", y=0.8)
 
-class ChargeQubitSpectroscopy(DataSetRFOPX):
-    def __init__(self, exp, run_id=None, lo_freq=0, unwrap_phase=True):
+class ChargeQubitSpectroscopy(FrequencyScanOPX2D):
+    def __init__(self, exp, run_id=None, lo_freq=0):
         super().__init__(exp, run_id, lo_freq=lo_freq)
         self.if_freq = self.independent_parameters['y']['values']
         self.rf_freq = self.if_freq + self.lo_freq

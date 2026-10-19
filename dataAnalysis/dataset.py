@@ -1,17 +1,21 @@
 
 from __future__ import annotations
+import warnings
 from unicodedata import name
+import copy
+import json
+from tabulate import tabulate
 import numpy as np
 import matplotlib.pyplot as plt
-import copy
 from scipy.stats import linregress
+
 import qcodes as qc
 from qcodes.dataset.data_export import DSPlotData
 from qcodes.dataset.plotting import _rescale_ticks_and_units
 from qcodes.dataset.descriptions.param_spec import ParamSpec
+
 import dataAnalysis.resonator_fitting as resfit
 import dataAnalysis.utils as utils
-import warnings
 
 
 def val_to_index(array, value):
@@ -64,6 +68,30 @@ def dbm_to_v_amp(dbm, R=50):
     # Convert to voltage amplitude for sine wave
     v_amp = np.sqrt(2) * v_rms
     return v_amp
+
+def print_experiment_dict(exp_dict):
+    for item in exp_dict.items():
+        print("-------------------------------------")
+        print(item[0])
+        print("-------------------------------------")
+        print(tabulate(item[1].items(), tablefmt='plain'))
+    print("-------------------------------------")
+
+def get_experiment_dict_from_id(exp, run_id=None, opx=None, print=True):
+    if run_id == None:
+        dataset = exp.last_data_set()
+    else:
+        dataset = exp.data_set(run_id)
+    if opx == None: 
+        for key in dataset.snapshot['station']['instruments'].keys():
+            if 'opx' in key.lower():
+                opx_snapshot = dataset.snapshot['station']['instruments'][key]
+    else:
+        opx_snapshot = dataset.snapshot['station']['instruments'][opx.name]
+    exp_dict = json.loads(opx_snapshot['parameters']['experiment_dict']['value'])
+    if print:
+        print_experiment_dict(exp_dict)
+    return exp_dict
 
 
 class DataSet():
@@ -294,7 +322,7 @@ class DataSet():
             data_normalized = self.normalize_data_raw(y_vals, x_vals, data_bg[i], x_bg[i], axis[i], operation[i], interpolate[i])
             self.dependent_parameters[param_name+'_normalized']['values'] = data_normalized
     
-    def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True):
+    def normalize_data_raw(self, data_raw, x_raw, data_bg, x_bg, axis=0, operation='subtract', interpolate=True):
         """
         Normalize the given raw data by subtracting, dividing, adding or multiplying it with the background data.
 
@@ -332,7 +360,7 @@ class DataSet():
             data_bg_converted = data_bg[x_slice]
         if (len(data_raw.shape) > 1) and (axis == 0):
             data_bg_converted = data_bg_converted[:,None]
-        if operation=='subtratct':
+        if operation=='subtract':
             data_normalized = data_raw - data_bg_converted
         elif operation=='divide':
             data_normalized = data_raw / data_bg_converted
@@ -1807,22 +1835,47 @@ class DataSetRFOPX(DataSet):
     lo_freq: float
     if_freq: float|np.ndarray
     rf_freq: float|np.ndarray
+    mag_unit: str
+    phase_unit: str
 
     def __init__(self, exp, run_id=None, station=None, lo_freq=0, if_freq=0):
         super().__init__(exp=exp, run_id=run_id, station=station)
-        self._extract_data(lo_freq, if_freq)
 
-    def _extract_data(self, lo_freq, if_freq):
-        """
-        Extracts data from an OPX measurement.
-        """
         self.mag = self.get_dependent_parameter_by_name('Magnitude')['values']
         self.phase = self.get_dependent_parameter_by_name('phase')['values']
         self.lo_freq = lo_freq
         self.if_freq = if_freq
         self.rf_freq = self.lo_freq + self.if_freq
-
         self.mag_unit = 'V'
+        self.phase_unit = 'deg'
+
+    def convert_mag_V_amp_to_S21_db(self, power_dbm=None, power_V=None):
+        """
+        Convert the magnitude data from the native OPX format of amplitude voltage to the actual S21 in dB. 
+        In order to do so, the output power used for the measurement must be provided, either in dbm (power_dbm)
+        or in amplitude (power_V). If not passed explicitly, the function fetches the experiment dictionary of
+        the dataset and looks for the entry ['readout']['power_dbm'].
+        """
+        if power_dbm != None and power_V == None:
+            power_V = dbm_to_v_amp(power_dbm)
+        elif power_dbm == None and power_V == None:
+            try:
+                power_dbm = get_experiment_dict_from_id(self.exp, self.run_id, print=False)['readout']['power_dbm']
+                power_V = dbm_to_v_amp(power_dbm)
+            except:
+                raise ValueError("'No 'power_dbm' found in the dataset experiment dictionary. Please provide the power manually.")
+        elif power_dbm != None and power_V != None:
+            raise ValueError("You should provide either 'power_bdm' or 'power_V', not both.")
+        
+        self.mag = 20*np.log10(self.mag / power_V)
+        self.mag_unit = 'dB'
+
+    def calculate_cdata(self):
+        assert(self.mag_unit == 'dB')
+        self.cData = 10**(self.mag/20) * np.exp(1j*self.phase)
+        if hasattr(self, 'mag_norm'):
+            self.cData_norm = 10**(self.mag_norm/20) * np.exp(1j*self.phase_norm)
+
 
     def shift_phase(self, shift_deg=180):
         """
@@ -1842,13 +1895,64 @@ class DataSetRFOPX(DataSet):
         self.phase = phase
         self.dependent_parameters['param_1']['values'] = self.phase
 
-    def plot(self, transpose=False, logx=False, logy=False):
+    def plot(self, transpose=False, normalized=False, logx=False, logy=False):
+        if len(self.independent_parameters) == 1:
+            self.plot_1D(normalized=normalized, logx=logx, logy=logy)
+        elif len(self.independent_parameters) == 2:
+            self.plot_2D(transpose=transpose, normalized=normalized, logx=logx, logy=logy)
+        else:
+            print("I don't know how to plot datasets with more than 2 independent parameters.")
+
+
+    def plot_1D(self, normalized=False, logx=False, logy=False):
+        fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+        # plt.subplots_adjust(wspace=0.4)
+        # Magnitude plot
+        mag = self.mag_norm if normalized else self.mag
+        mag_label = self.dependent_parameters['param_0']['paramspec'].label
+        mag_unit = self.mag_unit
+        phase = self.phase_norm if normalized else self.phase
+        phase_label = self.dependent_parameters['param_1']['paramspec'].label
+
+        x = self.independent_parameters['x']['values']
+        x_label = self.independent_parameters['x']['paramspec'].label
+        x_unit = self.independent_parameters['x']['paramspec'].unit
+
+
+        # Transform volts to mV
+        if x_unit == 'V':
+            x = x*1e3
+            x_unit = 'mV'
+        if self.mag_unit == 'V':
+            mag = mag*1e3
+            mag_unit = 'mV'
+        
+        plot0 = axs[0].plot(x, mag)
+        axs[0].set_xlabel(x_label + f" ({x_unit})")
+        axs[0].set_ylabel(mag_label + f" ({mag_unit})")
+        
+        plot0 = axs[1].plot(x, phase)
+        axs[1].set_xlabel(x_label + f" ({x_unit})")
+        axs[1].set_ylabel(phase_label + " (deg)")
+
+        for ax in axs:
+            if logx:
+                ax.set_xscale('log')
+            if logy:
+                ax.set_yscale('log')
+
+        fig.suptitle(f"Run #{self.run_id}", y=0.98)
+
+        return fig, axs
+
+    def plot_2D(self, transpose=False, normalized=False, logx=False, logy=False):
         fig, axs = plt.subplots(1, 2, figsize=(14, 5))
         # plt.subplots_adjust(wspace=0.4)
         # Magnitude plot
-        mag = self.dependent_parameters['param_0']['values']
+        mag = self.mag_norm if normalized else self.mag
         mag_label = self.dependent_parameters['param_0']['paramspec'].label
-        phase = self.dependent_parameters['param_1']['values']
+        mag_unit = self.mag_unit
+        phase = self.phase_norm if normalized else self.phase
         phase_label = self.dependent_parameters['param_1']['paramspec'].label
         if transpose:
             x_id = 'y'
@@ -1865,15 +1969,26 @@ class DataSetRFOPX(DataSet):
         y = self.independent_parameters[y_id]['values']
         y_label = self.independent_parameters[y_id]['paramspec'].label
         y_unit = self.independent_parameters[y_id]['paramspec'].unit
+
+        # Transform volts to mV
+        if x_unit == 'V':
+            x = x*1e3
+            x_unit = 'mV'
+        if y_unit == 'V':
+            y = y*1e3
+            y_unit = 'mV'
+        if self.mag_unit == 'V':
+            mag = mag*1e3
+            mag_unit = 'mV'
         
-        plot0 = axs[0].pcolormesh(x*1e3, y*1e3, mag*1e3)
+        plot0 = axs[0].pcolormesh(x, y, mag)
         axs[0].set_xlabel(x_label + f" ({x_unit})")
         axs[0].set_ylabel(y_label + f" ({y_unit})")
-        cbar = fig.colorbar(plot0, label= mag_label + " (mV)", location='right', shrink=1.0)
+        cbar = fig.colorbar(plot0, label= mag_label + f" ({mag_unit})", location='right', shrink=1.0)
         
-        plot0 = axs[1].pcolormesh(x*1e3, y*1e3, phase)
-        axs[1].set_xlabel(x_label + " (mV)")
-        axs[1].set_ylabel(y_label + " (mV)")
+        plot0 = axs[1].pcolormesh(x, y, phase)
+        axs[1].set_xlabel(x_label + f" ({x_unit})")
+        axs[1].set_ylabel(y_label + f" ({y_unit})")
         fig.colorbar(plot0, label= phase_label + " (deg)", location='right', shrink=1.0)
 
         for ax in axs:
@@ -1882,8 +1997,6 @@ class DataSetRFOPX(DataSet):
             if logy:
                 ax.set_yscale('log')
 
-
-        
         fig.suptitle(f"Run #{self.run_id}", y=0.98)
 
         return fig, axs
@@ -1936,15 +2049,26 @@ class FrequencyScanOPX(DataSetRFOPX):
         self.dependent_parameters['param_1']['values'] = phase_corrected
         self.phase = phase_corrected
 
-    def plot_mag_and_phase(self):
+    def plot(self, normalized=False, **kwargs):
         """
         Plots the magnitude and phase of the data.
         """
+        mag = self.mag_norm if normalized else self.mag
+        phase = self.phase_norm if normalized else self.phase
+        mag_label = "Magnitude norm." if normalized else "Magnitude"
+        phase_label = "Phase norm." if normalized else "Phase"
+
+        if hasattr(self, 'mag_norm_unit'):
+            mag_unit = self.mag_norm_unit
+        else: 
+            mag_unit = self.mag_unit
+
         fig, axes = plt.subplots(1, 2, sharex=True, figsize=(12, 4))
         fig.suptitle(f'Run ID {self.run_id}', y=1.02)
 
-        axes[0].plot(self.if_freq/1e6, self.mag)
-        axes[0].set_ylabel('Magnitude (V)')
+        # Magnitude
+        axes[0].plot(self.if_freq/1e6, mag, **kwargs)
+        axes[0].set_ylabel(f'{mag_label} ({mag_unit})')
         axes[0].set_xlabel('IF Frequency (MHz)')
         # Add secondary x-axis at the top
         secax = axes[0].secondary_xaxis('top', functions=(
@@ -1953,8 +2077,9 @@ class FrequencyScanOPX(DataSetRFOPX):
             ))
         secax.set_xlabel('RF Frequency (GHz)')
 
-        axes[1].plot(self.if_freq/1e6, self.phase)
-        axes[1].set_ylabel('Phase (deg)')
+        # Phase
+        axes[1].plot(self.if_freq/1e6, phase, **kwargs)
+        axes[1].set_ylabel(f'{phase_label} (deg)')
         axes[1].set_xlabel('IF Frequency (MHz)')
         # Add secondary x-axis at the top
         secax = axes[1].secondary_xaxis('top', functions=(
@@ -1964,6 +2089,18 @@ class FrequencyScanOPX(DataSetRFOPX):
         secax.set_xlabel('RF Frequency (GHz)')
         
         return fig, axes
+
+    def normalize_data_from_opx_freq_scan(self, bg_meas:FrequencyScanOPX):
+        assert self.mag_unit == bg_meas.mag_unit
+        if self.mag_unit == 'V':
+            print("Warning: normalizing two measurements with format V amp. This will be correct only if the two measurements are taken at the same power")
+            self.mag_norm = 20*np.log10(self.normalize_data_raw(self.mag, self.if_freq, bg_meas.mag, bg_meas.if_freq, operation='divide'))
+            self.phase_norm = self.normalize_data_raw(self.phase, self.if_freq, bg_meas.phase, bg_meas.if_freq, operation='subtract')
+        elif self.mag_unit == 'dB':
+            self.mag_norm = self.normalize_data_raw(self.mag, self.if_freq, bg_meas.mag, bg_meas.if_freq, operation='subtract')
+            self.phase_norm = self.normalize_data_raw(self.phase, self.if_freq, bg_meas.phase, bg_meas.if_freq, operation='subtract')
+        self.mag_norm_unit = 'dB'
+        
 
 class FrequencyScanOPX2D(FrequencyScanOPX):
     other_param: np.ndarray
@@ -2013,36 +2150,76 @@ class FrequencyScanOPX2D(FrequencyScanOPX):
         self.phase = phase_corrected
         self.dependent_parameters['param_1']['values'] = self.phase
 
-    def plot(self):
-        fig, axs = plt.subplots(1, 2, figsize=(14, 5))
-        # plt.subplots_adjust(wspace=0.4)
+    def plot(self, normalized=False):
+        fig, axs = plt.subplots(1, 2, figsize=(11, 5))
+        
+
+        mag_to_plot = self.mag_norm if normalized else self.mag
+        phase_to_plot = self.phase_norm if normalized else self.phase
+        mag_label = "Magnitude norm." if normalized else "Magnitude"
+        phase_label = "Phase norm." if normalized else "Phase"
+        mag_unit = self.mag_unit
+
+        other_param = self.other_param
+        other_param_unit = self.other_param_unit
+
+        if other_param_unit == 'V':
+            other_param = other_param*1e3
+            other_param_unit = 'mV'
+        if mag_unit == 'V':
+            mag_to_plot = mag_to_plot*1e3
+            mag_unit = 'mV'
 
         if self.frequency_axis == 0:
-            plot_mag = axs[0].pcolormesh(self.other_param, self.if_freq/1e6, self.mag)
-            axs[0].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+
+            plot_mag = axs[0].pcolormesh(other_param, self.if_freq/1e6, mag_to_plot)
+            axs[0].set_xlabel(self.other_param_label + " (" + other_param_unit + ")")
             axs[0].set_ylabel("IF Frequency (MHz)")
-            cbar = fig.colorbar(plot_mag, label= f"Magnitude ({self.mag_unit})", location='right', shrink=1.0)
+            cbar = fig.colorbar(plot_mag, label= f"{mag_label} ({mag_unit})", location='top', shrink=1.0)
             
-            plot_phase = axs[1].pcolormesh(self.other_param, self.if_freq/1e6, self.phase)
-            axs[1].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            plot_phase = axs[1].pcolormesh(other_param, self.if_freq/1e6, phase_to_plot)
+            axs[1].set_xlabel(self.other_param_label + " (" + other_param_unit + ")")
             axs[1].set_ylabel("IF Frequency (MHz)")
-            cbar = fig.colorbar(plot_phase, label= "Phase (deg)", location='right', shrink=1.0)
+            cbar = fig.colorbar(plot_phase, label= f"{phase_label} (deg)", location='top', shrink=1.0)
+
+            # Add RF freq axis
+            plt.subplots_adjust(wspace=0.35)
+            for ax in axs:
+                secax = ax.secondary_yaxis('right', functions=(
+                    lambda if_freq_MHz: (if_freq_MHz*1e6 + self.lo_freq)/1e9, 
+                    lambda rf_freq_GHZ: (rf_freq_GHZ*1e9 - self.lo_freq)/1e6
+                    ))
+                secax.set_ylabel('RF Frequency (GHz)')
             
-            fig.suptitle(f"Run #{self.run_id}", y=0.98)
+            fig.suptitle(f"Run #{self.run_id}", y=0.9)
         else:
-            plot_mag = axs[0].pcolormesh(self.other_param, self.if_freq/1e6, self.mag.T)
-            axs[0].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            plot_mag = axs[0].pcolormesh(other_param, self.if_freq/1e6, mag_to_plot.T)
+            axs[0].set_xlabel(self.other_param_label + " (" + other_param_unit + ")")
             axs[0].set_ylabel("IF Frequency (MHz)")
-            cbar = fig.colorbar(plot_mag, label= f"Magnitude ({self.mag_unit})", location='right', shrink=1.0)
+            cbar = fig.colorbar(plot_mag, label= f"{mag_label} ({mag_unit})", location='right', shrink=1.0)
             
-            plot_phase = axs[1].pcolormesh(self.other_param, self.if_freq/1e6, self.phase.T)
-            axs[1].set_xlabel(self.other_param_label + " (" + self.other_param_unit + ")")
+            plot_phase = axs[1].pcolormesh(self.other_param, self.if_freq/1e6, phase_to_plot.T)
+            axs[1].set_xlabel(self.other_param_label + " (" + other_param_unit + ")")
             axs[1].set_ylabel("IF Frequency (MHz)")
-            cbar = fig.colorbar(plot_phase, label= "Phase (deg)", location='right', shrink=1.0)
+            cbar = fig.colorbar(plot_phase, label= f"{phase_label} (deg)", location='right', shrink=1.0)
+
+            # Add RF freq axis
+            for ax in axs:
+                secax = ax.secondary_xaxis('top', functions=(
+                    lambda if_freq_MHz: (if_freq_MHz*1e6 + self.lo_freq)/1e9, 
+                    lambda rf_freq_GHZ: (rf_freq_GHZ*1e9 - self.lo_freq)/1e6
+                    ))
+                secax.set_xlabel('RF Frequency (GHz)')
             
-            fig.suptitle(f"Run #{self.run_id}", y=0.98)
+            fig.suptitle(f"Run #{self.run_id}")
 
         return fig, axs, [plot_mag, plot_phase]
+
+    def normalize_data_from_opx_freq_scan(self, bg_meas):
+        assert self.mag_unit == bg_meas.mag_unit == 'dB'
+        self.mag_norm = self.normalize_data_raw(self.mag, self.if_freq, bg_meas.mag, bg_meas.if_freq, operation='subtract', axis=self.frequency_axis)
+        self.phase_norm = self.normalize_data_raw(self.phase, self.if_freq, bg_meas.phase, bg_meas.if_freq, operation='subtract', axis=self.frequency_axis)
+            
 
 
     
@@ -2055,17 +2232,18 @@ class PowerScanOPX(FrequencyScanOPX2D):
         self.power_label = self.other_param_label
         self.power_unit = self.other_param_unit
 
-    def convert_mag_to_S21(self, plot=False):
+    def convert_mag_V_amp_to_S21_db(self):
+        "If data has already been converted, don't do anything"
+        if self.mag_unit == 'dB':
+            print("Mag data is already in dB format")
+            return
+        
         if self.power_unit.lower() == 'dbm':
             power_V = dbm_to_v_amp(self.power)
-            print("dbm!")
         elif self.power_unit == 'V':
             power_V = self.power
-            print("V!")
         else:
             raise AttributeError("Weird unit in the measurement power: expecting 'dBm' or 'V' only.")
-
-        print(power_V)
 
         mag_corr = np.zeros_like(self.mag)
         for power_idx, power_V_val in enumerate(power_V):
@@ -2078,27 +2256,33 @@ class PowerScanOPX(FrequencyScanOPX2D):
         self.mag = 20*np.log10(mag_corr)
         self.mag_unit = 'dB'
 
-        if plot:
-            fig, axs, plots = self.plot()
-            # for ax in fig.axes:
-            #     if 'magnitude' in ax.get_ylabel().lower():
-            #         # ax.set_ylabel("Magnitude (dB)")
-            #         ax.set_ylabel("Magnitude (dB)")
-            return fig, axs, plots
 
     def normalize_data_from_index(self, idx=-1, axis=0):
         """
         Normalize magnitude and phase with a line cut at the specified index. Default idx is -1, usually corresponding to the highest power trace.
         """
-        mag_corr = np.zeros_like(self.mag)
-        norm_slice = self.mag[:, idx]
+        if self.mag_unit == 'V':
+            print("Magnitude data was in voltage amplitude format. Converting it to dB first.")
+            self.convert_mag_V_amp_to_S21_db()
+        
+        mag_norm = np.zeros_like(self.mag)
+        phase_norm = np.zeros_like(self.phase)
+        norm_slice_mag = self.mag[:, idx]
+        norm_slice_phase = self.phase[:, idx]
         for power_idx, _ in enumerate(self.power):
-            if self.frequency_axis == 0:
-                mag_slice_corr = self.mag[:, power_idx] - norm_slice
-                mag_corr[:, power_idx] = mag_slice_corr
+            if axis == 0:
+                mag_slice_norm = self.mag[:, power_idx] - norm_slice_mag
+                mag_norm[:, power_idx] = mag_slice_norm
+                phase_slice_norm = self.phase[:, power_idx] - norm_slice_phase
+                phase_norm[:, power_idx] = phase_slice_norm
+            elif axis == 1:
+                mag_slice_norm = self.mag[power_idx, :] - norm_slice_mag
+                mag_norm[power_idx, :] = mag_slice_norm
+                phase_slice_norm = self.phase[power_idx, :] - norm_slice_phase
+                phase_norm[power_idx, :] = phase_slice_norm
             else:
-                mag_slice_corr = self.mag[power_idx, :] - norm_slice
-                mag_corr[power_idx, :] = mag_slice_corr
-        self.mag = mag_corr
+                raise ValueError(f"'axis' must be either 0 or 1, but {axis} was given")
+        self.mag_norm = mag_norm
+        self.phase_norm = phase_norm
 
 
