@@ -269,7 +269,7 @@ class DataSet():
         self.dependent_parameters[phase_param_name+'_normalized']['values'] = np.angle(data_normalized)
 
 
-    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtratct', interpolate=True, renormalize=False):
+    def normalize_data(self, params_to_normalize, data_bg, x_bg, axis=0, operation='subtract', interpolate=True, renormalize=False):
         """
         Normalize the data for the specified dependent parameters.
     
@@ -1897,9 +1897,9 @@ class DataSetRFOPX(DataSet):
 
     def plot(self, transpose=False, normalized=False, logx=False, logy=False):
         if len(self.independent_parameters) == 1:
-            self.plot_1D(normalized=normalized, logx=logx, logy=logy)
+            return self.plot_1D(normalized=normalized, logx=logx, logy=logy)
         elif len(self.independent_parameters) == 2:
-            self.plot_2D(transpose=transpose, normalized=normalized, logx=logx, logy=logy)
+            return self.plot_2D(transpose=transpose, normalized=normalized, logx=logx, logy=logy)
         else:
             print("I don't know how to plot datasets with more than 2 independent parameters.")
 

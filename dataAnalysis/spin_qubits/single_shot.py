@@ -8,7 +8,7 @@ class TimeTraceMeasurement(DataSet):
     """
     Data analysis class for single shot experiment.
     """
-    def __init__(self, exp, run_id:int, param = 'param_0', ground_signal_is_higher=False):
+    def __init__(self, exp, run_id:int|list, param = 'param_0', ground_signal_is_higher=False):
         """
         Parameters:
             exp: The experiment handler.
@@ -22,8 +22,10 @@ class TimeTraceMeasurement(DataSet):
             self.num_shot = self.independent_parameters['x']['values']
             self.signal = self.dependent_parameters[param]['values'].T
             self.signal_paramspec = self.dependent_parameters[param]['paramspec']
+
         elif isinstance(run_id, list):  
             assert len(run_id) == 2, "run_id must be either an integer or a list of two integers (one for ground state, one for excited state)"
+
             run_id_g, run_id_e = run_id[0], run_id[1]
             self.num_states = 2
             if run_id_g == None and run_id_e == None:
@@ -36,17 +38,31 @@ class TimeTraceMeasurement(DataSet):
             self.time_g = dataset_g.independent_parameters['y']['values'] 
             self.num_shot_g = dataset_g.independent_parameters['x']['values'] 
             self.tot_num_shots_g = len(self.num_shot_g)
-            self.signal_g = dataset_g.dependent_parameters[param]['values'].T
-            self.signal_g_paramspec = dataset_g.dependent_parameters[param]['paramspec']
 
             # Excited state run
             dataset_e = DataSet(exp=exp, run_id=run_id_e)
             self.time_e = dataset_e.independent_parameters['y']['values'] 
             self.num_shot_e = dataset_e.independent_parameters['x']['values'] 
             self.tot_num_shots_e = len(self.num_shot_e)
-            self.signal_e = dataset_e.dependent_parameters[param]['values'].T
-            self.signal_e_paramspec = dataset_e.dependent_parameters[param]['paramspec']
+
+            if isinstance(param, list): # magnitude and phase
+                assert(len(param) == 2)
+                param_mag = param[0]
+                param_phase = param[1]
+                self.signal_g_mag = dataset_g.dependent_parameters[param_mag]['values'].T
+                self.signal_g_phase = dataset_g.dependent_parameters[param_phase]['values'].T
+                self.signal_e_mag = dataset_e.dependent_parameters[param_mag]['values'].T
+                self.signal_e_phase = dataset_e.dependent_parameters[param_phase]['values'].T
+
+            else: # only read one parameter
+                self.signal_g = dataset_g.dependent_parameters[param]['values'].T
+                self.signal_g_paramspec = dataset_g.dependent_parameters[param]['paramspec']
+
+                self.signal_e = dataset_e.dependent_parameters[param]['values'].T
+                self.signal_e_paramspec = dataset_e.dependent_parameters[param]['paramspec']
+
         self.ground_signal_is_higher = ground_signal_is_higher
+
 
     def plot_average_time_trace_over_shots(self, fit=True):
         """
@@ -114,6 +130,7 @@ class TimeTraceMeasurement(DataSet):
         # Integrate to obtain the data to form histogram
         ground_data = np.zeros_like(self.num_shot_g)
         excited_data = np.zeros_like(self.num_shot_e)
+
         for time_index in range(integrate_from_bin, integrate_from_bin + integrate_num_bins):
             ground_data += self.signal_g[:, time_index]
             excited_data += self.signal_e[:, time_index]
